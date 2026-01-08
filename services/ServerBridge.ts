@@ -44,7 +44,8 @@ type ServerMessageType =
   | 'CLEAR_USERS'
   | 'SERVER_STATE_SNAPSHOT'
   | 'PROCESS_UPDATE'
-  | 'HISTORY_UPDATE';   
+  | 'HISTORY_UPDATE'
+  | 'PONG'; // Added PONG type
 
 interface ServerMessage {
   type: ServerMessageType;
@@ -63,6 +64,10 @@ export class ServerBridge {
   private isManualDisconnect: boolean = false;
   private reconnectDelay: number = 1000;
   
+  // Heartbeat
+  private pingInterval: any = null;
+  private pongTimeout: any = null;
+
   // Pending Requests (Map RequestID -> Resolve Function)
   private pendingRequests: Map<string, (data: any) => void> = new Map();
 
@@ -132,6 +137,7 @@ export class ServerBridge {
     }
 
     this.isManualDisconnect = false;
+    this.cleanupHeartbeat();
 
     let targetUrl = '';
     try {
@@ -163,6 +169,8 @@ export class ServerBridge {
                 this.isConnected = true;
                 this.reconnectDelay = 1000;
                 this.onConnectionChange(true);
+                this.startHeartbeat();
+                
                 if (this.reconnectTimer) {
                     clearTimeout(this.reconnectTimer);
                     this.reconnectTimer = null;
@@ -173,6 +181,7 @@ export class ServerBridge {
             this.socket.onclose = (event) => {
                 this.isConnected = false;
                 this.onConnectionChange(false);
+                this.cleanupHeartbeat();
                 this.socket = null;
                 if (!this.isManualDisconnect) {
                     console.log(`[ServerBridge] Connection closed. Retry in ${this.reconnectDelay}ms`);
@@ -196,6 +205,37 @@ export class ServerBridge {
     }
   }
 
+  // --- Heartbeat ---
+
+  private startHeartbeat() {
+      this.cleanupHeartbeat();
+      // Send PING every 10s
+      this.pingInterval = setInterval(() => {
+          if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+              this.send('PING' as any, {});
+              // Wait 5s for PONG
+              this.pongTimeout = setTimeout(() => {
+                  console.warn("[ServerBridge] Ping timeout. Force reconnect.");
+                  if (this.socket) this.socket.close(); // Triggers onclose logic
+              }, 5000);
+          }
+      }, 10000);
+  }
+
+  private handlePong() {
+      if (this.pongTimeout) {
+          clearTimeout(this.pongTimeout);
+          this.pongTimeout = null;
+      }
+  }
+
+  private cleanupHeartbeat() {
+      if (this.pingInterval) clearInterval(this.pingInterval);
+      if (this.pongTimeout) clearTimeout(this.pongTimeout);
+      this.pingInterval = null;
+      this.pongTimeout = null;
+  }
+
   public updateToken(token: string | null) {
       this.token = token;
       if (this.socket && this.socket.readyState === WebSocket.OPEN && token) {
@@ -212,6 +252,7 @@ export class ServerBridge {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = null;
       }
+      this.cleanupHeartbeat();
       if (this.socket) {
           this.socket.onclose = null; 
           this.socket.onerror = null;
@@ -226,6 +267,9 @@ export class ServerBridge {
 
   private handleMessage(data: ServerMessage) {
       switch (data.type) {
+          case 'PONG':
+              this.handlePong();
+              break;
           case 'AUTH_ERROR':
               this.onAuthError();
               break;
@@ -314,11 +358,10 @@ export class ServerBridge {
       }
   }
 
+  // ... (Existing methods: awaitAuth, syncCommands, etc. remain unchanged) ...
   public awaitAuth(state: string) {
       this.send('AWAIT_AUTH', { state });
   }
-
-  // --- HTTP Methods ---
 
   public async syncCommands(channelId: string, commands: Command[]) {
       try {

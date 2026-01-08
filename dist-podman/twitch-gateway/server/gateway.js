@@ -32,7 +32,6 @@ class Gateway {
     }
 
     // 2. Load or Generate Secure Token
-    // Only load from file if ENV token is NOT set
     if (!this.token) {
       try {
         if (fs.existsSync(configFile)) {
@@ -60,7 +59,6 @@ class Gateway {
         console.log('[Gateway] Using Access Token from Environment Variable.');
     }
     
-    // Log masked token for security check
     const masked = this.token ? `${this.token.substring(0, 6)}...` : 'NONE';
     console.log(`[Gateway] Security Token Active: ${masked}`);
 
@@ -80,7 +78,7 @@ class Gateway {
 
       if (providedToken !== this.token) {
         console.warn('[Gateway] Connection blocked: Invalid or missing token');
-        ws.send(JSON.stringify({ type: 'ERROR', message: 'Authentication failed. Provide token in query params or Authorization header.' }));
+        ws.send(JSON.stringify({ type: 'ERROR', message: 'Authentication failed.' }));
         ws.close(1008, 'Authentication Failed');
         return;
       }
@@ -91,7 +89,7 @@ class Gateway {
       ws.on('message', (message) => {
         try {
           const data = JSON.parse(message);
-          this.handleCommand(data);
+          this.handleCommand(ws, data);
         } catch (e) {
           console.error('[Gateway] Invalid JSON received', e);
         }
@@ -101,7 +99,6 @@ class Gateway {
           this.clients.delete(ws);
       });
 
-      // Send initial welcome/status
       ws.send(JSON.stringify({ 
           type: 'WELCOME', 
           message: 'Connected to Twitch Gateway', 
@@ -112,7 +109,13 @@ class Gateway {
     console.log(`[Gateway] WebSocket Server running on port ${this.port}`);
   }
 
-  handleCommand(data) {
+  handleCommand(ws, data) {
+    // Internal Health Check
+    if (data.command === 'PING') {
+        ws.send(JSON.stringify({ type: 'PONG' }));
+        return;
+    }
+
     if (!this.botService) {
         console.warn('[Gateway] Received command but Bot Service not yet linked.');
         return;
@@ -126,16 +129,14 @@ class Gateway {
         break;
 
       case 'JOIN':
-        if (data.channel && this.botService.client) {
-            console.log(`[Gateway] Joining channel: ${data.channel}`);
-            this.botService.client.join(data.channel).catch(e => console.error(`Failed to join ${data.channel}`, e));
+        if (data.channel) {
+            this.botService.join(data.channel);
         }
         break;
 
       case 'PART':
-        if (data.channel && this.botService.client) {
-            console.log(`[Gateway] Leaving channel: ${data.channel}`);
-            this.botService.client.part(data.channel).catch(e => console.error(`Failed to part ${data.channel}`, e));
+        if (data.channel) {
+            this.botService.part(data.channel);
         }
         break;
 

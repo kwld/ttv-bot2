@@ -81,6 +81,12 @@ export const handleConnection = async (ws, req) => {
     ws.on('message', async (message) => {
         try {
             const data = JSON.parse(message);
+            // Handle Heartbeat
+            if (data.type === 'PING') {
+                ws.send(JSON.stringify({ type: 'PONG' }));
+                return;
+            }
+
             const activeUserId = getUserIdBySocket(ws);
             if (data.type === 'AWAIT_AUTH' && data.payload?.state) {
                 authWaiters.set(data.payload.state, ws);

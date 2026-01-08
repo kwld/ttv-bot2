@@ -32,13 +32,13 @@ const SCOPE_DEFINITIONS = [
   { 
     id: 'chat:read', 
     label: 'Chat Read', 
-    description: 'Read chat messages (Optional for streamer).',
+    description: 'Read chat messages (Managed by Main Bot).',
     required: false
   },
   { 
     id: 'chat:edit', 
     label: 'Chat Write', 
-    description: 'Send messages (Optional for streamer).',
+    description: 'Send messages (Managed by Main Bot).',
     required: false
   }
 ];

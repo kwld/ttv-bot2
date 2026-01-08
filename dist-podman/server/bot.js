@@ -400,34 +400,155 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
 };
 
 export const checkStreamsAndManageConnection = async () => {
-    // Legacy logic removed. Gateway handles stream monitoring.
+    if (!botClient || !botClient.isConnected) return;
+
+    if (IS_DEV) console.log('[Bot] Checking stream status and managing connections...');
+
+    // 1. Get all channels settings
+    const settings = await ChannelSettingsModel.find({});
+    
+    // We need a list of user IDs to check stream status.
+    const candidates = [];
+    const settingsMap = new Map();
+    const activeAuths = [];
+
+    // Map settings
+    for (const s of settings) {
+        settingsMap.set(s.channelId, s);
+        // Include ALL channels from DB, regardless of enabled state, so we can PART them if needed.
+        candidates.push(s.channelId);
+    }
+    
+    // Also include manually authenticated users if they don't have settings yet (implied enabled)
+    const auths = await AuthModel.find({ isBot: false });
+    for (const a of auths) {
+        activeAuths.push(a);
+        if (!settingsMap.has(a.userId)) {
+             candidates.push(a.userId);
+        }
+    }
+    
+    // Also include currently joined channels to cleanup zombies
+    if (botClient && botClient.channels) {
+        // We need to resolve channel names to IDs for API lookup if possible, or just skip API lookup for them if we can't.
+        // For simplicity, we mostly rely on DB list for API check. 
+        // But if we are joined to "ninja" and "ninja" is not in DB, we should part it.
+        // Handled in step 3 (cleanup).
+    }
+
+    // Deduplicate
+    const uniqueIds = [...new Set(candidates)];
+    if (uniqueIds.length === 0) return;
+
+    // 2. Fetch Live Status
+    const token = await authManager.getAppAccessToken();
+    if (!token) {
+        console.error("Could not get app token for stream check");
+        return;
+    }
+
+    const liveStreams = new Set();
+    let apiFetchFailed = false;
+    
+    // Chunk requests
+    const chunkSize = 100;
+    for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+        const chunk = uniqueIds.slice(i, i + chunkSize);
+        const query = chunk.map(id => `user_id=${id}`).join('&');
+        try {
+            const res = await fetch(`https://api.twitch.tv/helix/streams?${query}`, {
+                headers: {
+                    'Client-ID': process.env.TWITCH_CLIENT_ID,
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.data) {
+                    data.data.forEach(s => liveStreams.add(s.user_id));
+                    data.data.forEach(s => cachedLiveStreams.add(s.user_login.toLowerCase())); // Update global cache
+                }
+            } else {
+                console.warn(`Stream check API failed: ${res.status}`);
+                apiFetchFailed = true;
+            }
+        } catch (e) {
+            console.error("Stream check failed", e);
+            apiFetchFailed = true;
+        }
+    }
+
+    // CRITICAL: If API fetch fails, DO NOT proceed to part channels based on empty list.
+    if (apiFetchFailed) {
+        console.warn("Skipping connection management due to API failure.");
+        return;
+    }
+
+    // 3. Reconcile
+    const validUsernames = new Set();
+
+    for (const userId of uniqueIds) {
+        const setting = settingsMap.get(userId) || { botEnabled: true, isLocked: false }; // Default defaults for raw auths
+        
+        // Find username
+        let username = setting.channelName;
+        if (!username) {
+            const auth = activeAuths.find(a => a.userId === userId);
+            username = auth ? auth.username : null;
+        }
+
+        if (!username) continue;
+        
+        validUsernames.add(username.toLowerCase());
+
+        const isLive = liveStreams.has(userId);
+        const isLocked = setting.isLocked || setting.serverLocked;
+        const isEnabled = setting.botEnabled;
+
+        let shouldJoin = false;
+        let reason = '';
+
+        if (!isEnabled) {
+            shouldJoin = false;
+            reason = 'Bot Disabled';
+        } else if (isLocked) {
+            shouldJoin = true;
+            reason = 'Locked (Always On)';
+        } else if (isLive) {
+            shouldJoin = true;
+            reason = 'Stream Live';
+        } else {
+            shouldJoin = false;
+            reason = 'Stream Offline & Unlocked';
+        }
+
+        const isAlreadyJoined = botClient.isJoined(username);
+
+        // Only act if state mismatches
+        if (shouldJoin && !isAlreadyJoined) {
+             console.log(`[Bot] Joining #${username} (${reason})`);
+             botClient.join(username);
+        } else if (!shouldJoin && isAlreadyJoined) {
+             console.log(`[Bot] Parting #${username} (${reason})`);
+             botClient.part(username);
+        }
+    }
+    
+    // 4. Cleanup Zombies (Channels joined but not in DB)
+    if (botClient && botClient.channels) {
+        for (const ch of botClient.channels) {
+            if (!validUsernames.has(ch.toLowerCase())) {
+                console.log(`[Bot] Parting zombie channel #${ch}`);
+                botClient.part(ch);
+            }
+        }
+    }
 };
 
 // Syncs all active channels to the Gateway (joins chat)
 export const syncGatewayChannels = async () => {
-    if (!botClient || !botClient.isConnected) return;
-    console.log('[Bot] Syncing channels with Gateway...');
-    
-    try {
-        // 1. Get all channels from Settings (explicitly managed)
-        const settings = await ChannelSettingsModel.find({ botEnabled: true });
-        for (const s of settings) {
-            if (s.channelName) {
-                botClient.join(s.channelName);
-            }
-        }
-
-        // 2. Get all authenticated users (implicit channels) if not already covered
-        const auths = await AuthModel.find({ isBot: false });
-        for (const a of auths) {
-            // Avoid duplicates if covered by settings
-            if (!settings.some(s => s.channelId === a.userId)) {
-                botClient.join(a.username);
-            }
-        }
-    } catch (e) {
-        console.error("Channel Sync Error:", e);
-    }
+    console.log('[Bot] Initial Channel Sync...');
+    await checkStreamsAndManageConnection();
 };
 
 export const trackOnlineTime = async () => {
@@ -462,4 +583,7 @@ export function initBot(botAuth) {
     });
     client.connect();
     setBotClient(client);
+
+    // Start Polling
+    setInterval(checkStreamsAndManageConnection, 120000); // 2 minutes
 }

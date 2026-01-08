@@ -28,13 +28,19 @@ export class EventSubService {
         }
 
         const settings = await ChannelSettingsModel.findOne({ channelId: broadcasterId });
-        if (!settings || settings.botEnabled === false) return;
+        if (!settings || settings.botEnabled === false) {
+             // If disabled, ensure parted even if event comes in (unless lock bypass logic overrides, but standard is off)
+             if (type === 'stream.online' && botClient && botClient.isConnected && broadcasterName) {
+                 botClient.part(broadcasterName);
+             }
+             return;
+        }
 
         if (type === 'stream.online') {
             console.log(`[Gateway] [Online] ${broadcasterName} is now LIVE!`);
             if (broadcasterName) cachedLiveStreams.add(broadcasterName.toLowerCase());
             
-            // Explicitly tell Gateway to join chat when stream goes online
+            // Join Chat (Live override)
             if (botClient && botClient.isConnected && broadcasterName) {
                 botClient.join(broadcasterName);
                 botClient.channels.add(broadcasterName.toLowerCase());
@@ -47,6 +53,13 @@ export class EventSubService {
         if (type === 'stream.offline') {
             console.log(`[Gateway] [Offline] ${broadcasterName} went offline.`);
             if (broadcasterName) cachedLiveStreams.delete(broadcasterName.toLowerCase());
+            
+            // Part Chat ONLY IF NOT LOCKED
+            const isLocked = settings.isLocked || settings.serverLocked;
+            if (!isLocked && botClient && botClient.isConnected && broadcasterName) {
+                botClient.part(broadcasterName);
+                botClient.channels.delete(broadcasterName.toLowerCase());
+            }
             
             broadcastToUser(broadcasterId, { type: 'LOG', payload: { level: 'warning', message: `Stream is OFFLINE.` } });
             return;

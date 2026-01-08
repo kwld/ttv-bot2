@@ -46,20 +46,53 @@ class TwitchBot {
 
     // Initialize TMI Client (Mainly for writing messages now)
     this.client = new tmi.Client({
-      options: { debug: true },
+      options: { debug: false }, // Disable verbose TMI logging, we will log custom events
       connection: { reconnect: true, secure: true },
       identity: {
         username: botToken.login,
         password: `oauth:${botToken.accessToken}`
       },
-      channels: [] // Will join dynamically
+      channels: [] // Will join dynamically via API commands
     });
 
     this.client.on('connected', () => {
-      console.log('Twitch Chat Connected (IRC)');
+      console.log('[TwitchIRC] Connected to Chat.');
+      if (this.gateway) {
+          this.gateway.broadcast('SYSTEM_LOG', {
+              type: 'SYSTEM_LOG',
+              message: 'Connected to Twitch IRC.',
+              timestamp: new Date().toISOString()
+          });
+      }
       this.joinSavedChannels();
     });
     
+    this.client.on('join', (channel, username, self) => {
+        if(self) {
+            console.log(`[TwitchIRC] JOINED ${channel}`);
+            if (this.gateway) {
+                this.gateway.broadcast('SYSTEM_LOG', {
+                    type: 'SYSTEM_LOG',
+                    message: `🟢 Joined IRC: ${channel}`,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        }
+    });
+
+    this.client.on('part', (channel, username, self) => {
+        if(self) {
+            console.log(`[TwitchIRC] PARTED ${channel}`);
+            if (this.gateway) {
+                this.gateway.broadcast('SYSTEM_LOG', {
+                    type: 'SYSTEM_LOG',
+                    message: `🔴 Parted IRC: ${channel}`,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        }
+    });
+
     // --- TMI Message Handler (Fallback for Chat Reading) ---
     this.client.on('message', (channel, tags, message, self) => {
         if (self) return; // Ignore self
@@ -68,14 +101,14 @@ class TwitchBot {
         const eventData = {
             broadcaster_user_id: tags['room-id'],
             broadcaster_user_login: channel.replace('#', ''),
-            broadcaster_user_name: channel.replace('#', ''), // Approximation, TMI doesn't give display name of channel easily in msg
+            broadcaster_user_name: channel.replace('#', ''), 
             chatter_user_id: tags['user-id'],
             chatter_user_login: tags['username'],
             chatter_user_name: tags['display-name'],
             message_id: tags['id'],
             message: {
                 text: message,
-                fragments: [] // Fragments parsing omitted for brevity, text is primary
+                fragments: [] 
             },
             color: tags['color'] || '',
             badges: Object.entries(tags['badges'] || {}).map(([set_id, id]) => ({ set_id, id, info: '' })),
@@ -104,9 +137,9 @@ class TwitchBot {
     if (this.client) {
       try {
         await this.client.disconnect();
-        console.log('Twitch Bot Client Disconnected');
+        console.log('[TwitchIRC] Client Disconnected');
       } catch (e) {
-        console.error('Error disconnecting bot client:', e);
+        console.error('[TwitchIRC] Error disconnecting:', e);
       }
       this.client = null;
       this.botUserId = null;
@@ -114,24 +147,42 @@ class TwitchBot {
   }
 
   async joinSavedChannels() {
-    const streamers = await Token.find({ type: 'streamer' });
-    streamers.forEach(s => {
-      if (this.client) {
-        this.client.join(s.login).catch(e => console.error(`Failed to join ${s.login}`, e));
-      }
-    });
+    // We no longer auto-join from DB on startup, as the main app dictates logic via Gateway commands
+    // But we might want to ensure we track what we *think* we are in.
+    // For now, let the external app manage joins.
   }
   
   async syncAllStreamers() {
-    console.log('Syncing EventSub for all streamers...');
+    console.log('[EventSub] Syncing subscriptions for all streamers...');
     const streamers = await Token.find({ type: 'streamer' });
     for (const streamer of streamers) {
         await this.setupEventSub(streamer);
     }
   }
 
+  // --- Gateway Command Wrappers ---
+
+  join(channel) {
+      if (this.client) {
+          console.log(`[GatewayCmd] Joining ${channel}`);
+          this.client.join(channel).catch(e => console.error(`[TwitchIRC] Failed to join ${channel}:`, e));
+      }
+  }
+
+  part(channel) {
+      if (this.client) {
+          console.log(`[GatewayCmd] Parting ${channel}`);
+          this.client.part(channel).catch(e => {
+              // Suppress "No response from Twitch" error on PART, as it often means we weren't joined anyway
+              if (e === 'No response from Twitch.' || e.message === 'No response from Twitch.') return;
+              console.error(`[TwitchIRC] Failed to part ${channel}:`, e);
+          });
+      }
+  }
+
   say(channel, message) {
     if (this.client) {
+      console.log(`[GatewayCmd] Saying in ${channel}: ${message}`);
       this.client.say(channel, message).catch(console.error);
     }
   }
@@ -160,10 +211,10 @@ class TwitchBot {
       tokenDoc.expiresIn = res.data.expires_in;
       tokenDoc.obtainedAt = new Date();
       await tokenDoc.save();
-      console.log(`Refreshed token for ${tokenDoc.login}`);
+      console.log(`[Auth] Refreshed token for ${tokenDoc.login}`);
       return tokenDoc;
     } catch (e) {
-      console.error('Failed to refresh token', e.response?.data || e.message);
+      console.error('[Auth] Failed to refresh token', e.response?.data || e.message);
       throw e;
     }
   }
@@ -181,7 +232,7 @@ class TwitchBot {
       });
       return res.data.access_token;
     } catch (e) {
-      console.error("Failed to get App Access Token", e.response?.data);
+      console.error("[Auth] Failed to get App Access Token", e.response?.data);
       throw e;
     }
   }
@@ -203,7 +254,7 @@ class TwitchBot {
         cursor = res.data.pagination?.cursor;
       } while (cursor);
     } catch (e) {
-      console.error("Failed to fetch subscriptions list", e.response?.data || e.message);
+      console.error("[EventSub] Failed to fetch list", e.response?.data || e.message);
     }
     return subscriptions;
   }
@@ -240,17 +291,16 @@ class TwitchBot {
               },
               params: { id }
           });
-          console.log(`Deleted subscription ${id}`);
+          console.log(`[EventSub] Deleted subscription ${id}`);
       } catch (e) {
-          // Ignore 404 (already deleted)
           if (e.response?.status !== 404) {
-             console.error(`Failed to delete subscription ${id}`, e.response?.data || e.message);
+             console.error(`[EventSub] Failed to delete subscription ${id}`, e.response?.data || e.message);
           }
       }
   }
 
   async cleanupOrphanedSubscriptions() {
-    console.log('Scanning for orphaned/broken subscriptions...');
+    console.log('[EventSub] Scanning for orphaned/broken subscriptions...');
     try {
       const appToken = await this.getAppAccessToken();
       const allSubs = await this.getAllSubscriptions(appToken);
@@ -265,14 +315,14 @@ class TwitchBot {
         const isBroken = sub.status === 'webhook_callback_verification_failed' || sub.status === 'authorization_revoked';
         
         if (isWrongUrl || isBroken) {
-          console.log(`Deleting orphan: ${sub.id} (${sub.status}) - ${sub.transport.callback}`);
+          console.log(`[EventSub] Deleting orphan: ${sub.id} (${sub.status})`);
           await this.deleteSubscription(sub.id, appToken);
           deletedCount++;
         }
       }
-      if (deletedCount > 0) console.log(`Cleaned up ${deletedCount} orphaned subscriptions.`);
+      if (deletedCount > 0) console.log(`[EventSub] Cleaned up ${deletedCount} orphaned subscriptions.`);
     } catch (e) {
-      console.error('Startup cleanup failed:', e.message);
+      console.error('[EventSub] Startup cleanup failed:', e.message);
     }
   }
 
@@ -300,11 +350,7 @@ class TwitchBot {
       { type: 'channel.channel_points_automatic_reward_redemption.add', version: '2' },
       { type: 'channel.cheer', version: '1' },
       { type: 'channel.bits.use', version: '1' },
-      { 
-        type: 'channel.follow', 
-        version: '2', 
-        requiresModerator: true
-      },
+      { type: 'channel.follow', version: '2', requiresModerator: true },
       { type: 'channel.subscribe', version: '1' },
       { type: 'channel.subscription.end', version: '1' },
       { type: 'channel.subscription.gift', version: '1' },
@@ -323,13 +369,11 @@ class TwitchBot {
     const allSubs = await this.getAllSubscriptions(appAccessToken);
 
     for (const def of definitions) {
-        // Scope Validation: Check if the token has the required scope for this subscription
         const requiredScope = SCOPE_REQUIREMENTS[def.type];
         if (requiredScope && (!streamerToken.scope || !streamerToken.scope.includes(requiredScope))) {
-            continue; // Skip if scope missing
+            continue; 
         }
 
-        // Construct the expected condition
         const condition = { broadcaster_user_id: streamerToken.twitchId };
         if (def.requiresModerator) {
             condition.moderator_user_id = streamerToken.twitchId;
@@ -338,29 +382,20 @@ class TwitchBot {
             Object.assign(condition, def.extraCondition);
         }
 
-        // Check for existing valid subscription
         const validSub = allSubs.find(s => {
-            // Check basic fields
             if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) {
                 return false;
             }
-
-            // ALLOW PENDING VERIFICATION to prevent loops
             if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') {
                 return false;
             }
-            
-            // Check deeply equal condition
             const sCond = s.condition;
             const keysA = Object.keys(condition);
             const keysB = Object.keys(sCond);
             if (keysA.length !== keysB.length) return false;
-            
             return keysA.every(key => String(condition[key]) === String(sCond[key]));
         });
 
-        // Cleanup invalid/duplicates for this specific type & broadcaster
-        // We filter by type and broadcaster to narrow scope, but verify strict match
         const relevantSubs = allSubs.filter(s => 
             s.type === def.type && 
             s.condition.broadcaster_user_id === streamerToken.twitchId
@@ -375,11 +410,10 @@ class TwitchBot {
             continue;
         }
         
-        // Determine Authentication Token
         let accessToken = appAccessToken;
         if (def.authType === 'user') {
             if (!botTokenDoc) {
-                console.warn(`Cannot subscribe to ${def.type}: Bot not authenticated.`);
+                console.warn(`[EventSub] Cannot subscribe to ${def.type}: Bot not authenticated.`);
                 continue;
             }
             accessToken = botTokenDoc.accessToken;
@@ -402,25 +436,19 @@ class TwitchBot {
                 'Content-Type': 'application/json'
             }
             });
-            console.log(`Subscribed to ${def.type} for ${streamerToken.login}`);
+            console.log(`[EventSub] Subscribed to ${def.type} for ${streamerToken.login}`);
         } catch (e) {
             if (e.response?.status === 409) {
-                console.log(`Subscription conflict for ${def.type}.`);
+                // Conflict, likely exists
             } else {
-                console.error(`Failed to subscribe ${def.type} for ${streamerToken.login}`, e.response?.data);
+                console.error(`[EventSub] Failed to subscribe ${def.type} for ${streamerToken.login}`, e.response?.data);
             }
         }
-    }
-    
-    // Join chat via TMI for writing AND reading
-    if(this.client) {
-        this.client.join(streamerToken.login).catch(() => {});
     }
   }
   
   async removeStreamer(twitchId) {
-      console.log(`Removing streamer ${twitchId}...`);
-      
+      console.log(`[Bot] Removing streamer ${twitchId}...`);
       try {
           const appAccessToken = await this.getAppAccessToken();
           const allSubs = await this.getAllSubscriptions(appAccessToken);
@@ -434,7 +462,7 @@ class TwitchBot {
               await this.deleteSubscription(sub.id, appAccessToken);
           }
       } catch (error) {
-          console.error(`Error cleaning up subscriptions for ${twitchId}:`, error.message);
+          console.error(`[Bot] Error cleaning up subscriptions for ${twitchId}:`, error.message);
       }
 
       if(this.client) {
@@ -442,7 +470,6 @@ class TwitchBot {
           if (streamer) this.client.part(streamer.login).catch(() => {});
       }
       await Token.deleteOne({ twitchId, type: 'streamer' });
-      console.log(`Streamer ${twitchId} removed from database.`);
   }
 }
 
