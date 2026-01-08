@@ -256,12 +256,8 @@ app.get('/auth/login/:type', (req, res) => {
       return res.status(401).send('Unauthorized: Only admins can authenticate the bot account.');
   }
 
-  const defaultStreamerScopes = [
-      'channel:read:redemptions', 
-      'bits:read',                
-      'moderator:read:followers', 
-      'channel:read:subscriptions' 
-  ];
+  // MINIMAL SCOPES BY DEFAULT FOR FIRST LOGIN
+  const defaultStreamerScopes = ['user:read:email']; 
   
   const defaultBotScopes = ['chat:read', 'chat:edit', 'user:read:chat', 'user:bot'];
 

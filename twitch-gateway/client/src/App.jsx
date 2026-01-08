@@ -74,13 +74,12 @@ const AuthModal = ({ isOpen, onClose, initialScopes = DEFAULT_SCOPES }) => {
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
             <div className="bg-gray-800 rounded-lg shadow-2xl border border-gray-700 w-full max-w-lg overflow-hidden">
                 <div className="bg-gray-750 p-4 border-b border-gray-700 flex justify-between items-center">
-                    <h3 className="text-lg font-bold text-white">Connect Streamer Account</h3>
+                    <h3 className="text-lg font-bold text-white">Manage Features & Permissions</h3>
                     <button onClick={onClose} className="text-gray-400 hover:text-white">&times;</button>
                 </div>
                 <div className="p-6">
                     <p className="text-sm text-gray-400 mb-4">
-                        Select the permissions (scopes) you want to grant to the bot gateway. 
-                        Required scopes are recommended for full functionality.
+                        Enable specific features by granting permissions. This will trigger a re-authorization flow with Twitch.
                     </p>
                     <div className="space-y-3 max-h-[300px] overflow-y-auto mb-6">
                         {SCOPE_DEFINITIONS.map(scope => (
@@ -105,7 +104,7 @@ const AuthModal = ({ isOpen, onClose, initialScopes = DEFAULT_SCOPES }) => {
                     <div className="flex justify-end gap-3">
                         <button onClick={onClose} className="px-4 py-2 text-gray-300 hover:text-white text-sm">Cancel</button>
                         <button onClick={handleConnect} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-bold text-sm">
-                            Connect with Twitch
+                            Update Permissions
                         </button>
                     </div>
                 </div>
@@ -117,7 +116,6 @@ const AuthModal = ({ isOpen, onClose, initialScopes = DEFAULT_SCOPES }) => {
 const Login = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [showAuthModal, setShowAuthModal] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -161,20 +159,14 @@ const Login = ({ onLogin }) => {
         
         <div className="border-t border-gray-700 pt-6 text-center">
             <p className="text-gray-400 text-sm mb-3">Are you a streamer?</p>
-            <button 
-                onClick={() => setShowAuthModal(true)}
+            <a 
+                href="/auth/login/streamer?portal=true&scopes=user:read:email"
                 className="inline-block w-full bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded transition-colors"
             >
-                Manage My Streamer Account
-            </button>
+                Connect Streamer Account (Basic)
+            </a>
         </div>
       </div>
-      
-      <AuthModal 
-        isOpen={showAuthModal} 
-        onClose={() => setShowAuthModal(false)}
-        initialScopes={DEFAULT_SCOPES} 
-      />
     </div>
   );
 };
@@ -184,6 +176,10 @@ const StreamerDashboard = ({ logout }) => {
     const [subs, setSubs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    
+    // Modal
+    const [showAuthModal, setShowAuthModal] = useState(false);
+    const [modalScopes, setModalScopes] = useState([]);
 
     const fetchData = async () => {
         setLoading(true);
@@ -224,10 +220,18 @@ const StreamerDashboard = ({ logout }) => {
         }
     };
 
+    const handleManageFeatures = () => {
+        setModalScopes(me.scope || []);
+        setShowAuthModal(true);
+    };
+
     if (loading) return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">Loading...</div>;
     if (error) return <div className="min-h-screen bg-gray-900 flex items-center justify-center text-red-400">Error: {error}</div>;
     if (!me) return null;
 
+    const grantedScopes = me.scope || [];
+    const missingRecommended = REQUIRED_SCOPES.filter(s => !grantedScopes.includes(s));
+    
     return (
         <div className="min-h-screen bg-gray-900 text-white p-4">
             <div className="max-w-3xl mx-auto">
@@ -254,14 +258,28 @@ const StreamerDashboard = ({ logout }) => {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-gray-900 p-4 rounded border border-gray-700">
-                             <h3 className="text-sm font-bold text-gray-400 uppercase mb-3">Account Actions</h3>
+                             <h3 className="text-sm font-bold text-gray-400 uppercase mb-3">Permissions & Features</h3>
+                             
+                             <div className="flex flex-wrap gap-1 mb-4">
+                                {grantedScopes.map(s => (
+                                    <span key={s} className="px-2 py-0.5 bg-green-900/30 text-green-300 text-[10px] rounded border border-green-900">{s.split(':')[0]}</span>
+                                ))}
+                                {grantedScopes.length === 0 && <span className="text-xs text-gray-500 italic">Basic access only</span>}
+                             </div>
+                             
+                             {missingRecommended.length > 0 && (
+                                 <div className="mb-4 text-xs text-amber-400 bg-amber-900/20 p-2 rounded border border-amber-900/50">
+                                     <i className="fas fa-exclamation-triangle mr-1"></i> Missing recommended features.
+                                 </div>
+                             )}
+
                              <div className="flex flex-col gap-2">
-                                <a 
-                                    href="/auth/login/streamer?portal=true"
+                                <button 
+                                    onClick={handleManageFeatures}
                                     className="text-center px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium transition-colors"
                                 >
-                                    Refresh Permissions / Re-connect
-                                </a>
+                                    Manage Features / Update Permissions
+                                </button>
                                 <button 
                                     onClick={handleDeleteAccount}
                                     className="px-4 py-2 bg-red-900/50 hover:bg-red-900 text-red-200 border border-red-800 rounded text-sm font-medium transition-colors"
@@ -312,9 +330,9 @@ const StreamerDashboard = ({ logout }) => {
                                                 <span className={`px-2 py-0.5 rounded text-xs ${
                                                     sub.status === 'enabled' 
                                                         ? 'bg-green-900 text-green-300' 
-                                                        : 'bg-yellow-900 text-yellow-300'
+                                                        : (sub.status === 'webhook_callback_verification_pending' ? 'bg-blue-900 text-blue-300' : 'bg-yellow-900 text-yellow-300')
                                                 }`}>
-                                                    {sub.status}
+                                                    {sub.status.replace(/_/g, ' ')}
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3 font-mono">{sub.cost}</td>
@@ -326,6 +344,12 @@ const StreamerDashboard = ({ logout }) => {
                     )}
                 </div>
             </div>
+
+            <AuthModal 
+                isOpen={showAuthModal} 
+                onClose={() => setShowAuthModal(false)}
+                initialScopes={modalScopes} 
+            />
         </div>
     );
 };
@@ -537,7 +561,7 @@ const SubscriptionsTable = ({ subscriptions, streamers }) => {
                                         </div>
                                     </td>
                                     <td className="px-4 py-3">
-                                        {group.subs.some(s => s.status !== 'enabled') ? (
+                                        {group.subs.some(s => s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') ? (
                                              <span className="text-yellow-400 text-xs">Issues Detected</span>
                                         ) : group.subs.length > 0 ? (
                                             <span className="text-green-400 text-xs">Healthy</span>

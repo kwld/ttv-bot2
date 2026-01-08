@@ -313,10 +313,6 @@ class TwitchBot {
       { type: 'channel.shared_chat.begin', version: '1' },
       { type: 'channel.shared_chat.update', version: '1' },
       { type: 'channel.shared_chat.end', version: '1' },
-      
-      // REMOVED: channel.chat.message
-      // Reason: Webhooks do not support this subscription type easily (requires App Token but User Scope conflicts).
-      // We now handle chat reading via TMI.js (IRC) in the initialize() method.
     ];
 
     const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
@@ -345,8 +341,12 @@ class TwitchBot {
         // Check for existing valid subscription
         const validSub = allSubs.find(s => {
             // Check basic fields
-            if (s.type !== def.type || s.version !== def.version || 
-                s.status !== 'enabled' || s.transport.callback !== callbackUrl) {
+            if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) {
+                return false;
+            }
+
+            // ALLOW PENDING VERIFICATION to prevent loops
+            if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') {
                 return false;
             }
             
