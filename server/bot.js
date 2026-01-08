@@ -98,8 +98,6 @@ const getExecutor = (channelId, channelName) => {
         getParticipants: (executionId) => participants.get(executionId) || [],
         getEmotes: () => ({}),
         getChannelInfo: async (targetChId) => {
-             // Gateway doesn't expose raw API proxy yet, assume internal bot logic for now or implement in Gateway later
-             // For now, fallback to AuthManager logic if we have token, else skip
              const botAuth = await AuthModel.findOne({ isBot: true });
              if (botAuth) {
                  try {
@@ -145,7 +143,6 @@ const getExecutor = (channelId, channelName) => {
              return null;
         },
         createClip: async (targetChId, title, duration) => {
-            // Clip creation requires user token. If we have a stored token, use it.
             const botAuth = await AuthModel.findOne({ isBot: true });
             if (!botAuth) throw new Error("NO_BOT_AUTH");
             
@@ -406,6 +403,33 @@ export const checkStreamsAndManageConnection = async () => {
     // Legacy logic removed. Gateway handles stream monitoring.
 };
 
+// Syncs all active channels to the Gateway (joins chat)
+export const syncGatewayChannels = async () => {
+    if (!botClient || !botClient.isConnected) return;
+    console.log('[Bot] Syncing channels with Gateway...');
+    
+    try {
+        // 1. Get all channels from Settings (explicitly managed)
+        const settings = await ChannelSettingsModel.find({ botEnabled: true });
+        for (const s of settings) {
+            if (s.channelName) {
+                botClient.join(s.channelName);
+            }
+        }
+
+        // 2. Get all authenticated users (implicit channels) if not already covered
+        const auths = await AuthModel.find({ isBot: false });
+        for (const a of auths) {
+            // Avoid duplicates if covered by settings
+            if (!settings.some(s => s.channelId === a.userId)) {
+                botClient.join(a.username);
+            }
+        }
+    } catch (e) {
+        console.error("Channel Sync Error:", e);
+    }
+};
+
 export const trackOnlineTime = async () => {
     if (cachedLiveStreams.size === 0) return;
     try {
@@ -431,7 +455,11 @@ export const trackOnlineTime = async () => {
 
 export function initBot(botAuth) {
     if (botClient) botClient.disconnect();
-    const client = new GatewayClient();
+    const client = new GatewayClient({
+        onOpen: () => {
+            syncGatewayChannels();
+        }
+    });
     client.connect();
     setBotClient(client);
 }

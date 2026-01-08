@@ -34,8 +34,11 @@ export class EventSubService {
             console.log(`[Gateway] [Online] ${broadcasterName} is now LIVE!`);
             if (broadcasterName) cachedLiveStreams.add(broadcasterName.toLowerCase());
             
-            // Gateway handles joins, but we can ensure internal state
-            if (botClient && broadcasterName) botClient.channels.add(broadcasterName.toLowerCase());
+            // Explicitly tell Gateway to join chat when stream goes online
+            if (botClient && botClient.isConnected && broadcasterName) {
+                botClient.join(broadcasterName);
+                botClient.channels.add(broadcasterName.toLowerCase());
+            }
 
             broadcastToUser(broadcasterId, { type: 'LOG', payload: { level: 'success', message: `Stream is ONLINE!` } });
             return;

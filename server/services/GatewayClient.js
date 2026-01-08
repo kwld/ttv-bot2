@@ -7,6 +7,7 @@ export class GatewayClient {
     constructor(options = {}) {
         this.url = options.url || process.env.GATEWAY_URL || 'ws://localhost:8080';
         this.token = options.token || process.env.GATEWAY_TOKEN || '';
+        this.onOpen = options.onOpen; // Callback when connection opens
         
         this.ws = null;
         this.isConnected = false;
@@ -26,6 +27,7 @@ export class GatewayClient {
         this.ws.on('open', () => {
             console.log('[Gateway] Connected.');
             this.isConnected = true;
+            if (this.onOpen) this.onOpen();
         });
 
         this.ws.on('message', (data) => {
