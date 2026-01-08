@@ -30,10 +30,14 @@ const Gateway = require('./gateway');
 const TwitchBot = require('./bot');
 
 // --- Environment Validation ---
-const requiredEnvVars = ['TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET', 'BASE_URL', 'TWITCH_WEBHOOK_SECRET', 'ADMIN_PASSWORD'];
+const requiredEnvVars = ['TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET', 'TWITCH_WEBHOOK_SECRET', 'ADMIN_PASSWORD'];
+// Check for either BASE_URL or GATEWAY_PUBLIC_URL
+const hasUrl = process.env.BASE_URL || process.env.GATEWAY_PUBLIC_URL;
+if (!hasUrl) requiredEnvVars.push('GATEWAY_PUBLIC_URL');
+
 const missingVars = requiredEnvVars.filter(key => !process.env[key]);
 
-if (missingVars.length > 0) {
+if (missingVars.length > 0 && !hasUrl) {
   console.error('\x1b[31m%s\x1b[0m', '------------------------------------------------------------');
   console.error('\x1b[31m%s\x1b[0m', 'FATAL ERROR: Missing environment variables!');
   console.error('The following variables are undefined:');
@@ -45,8 +49,10 @@ if (missingVars.length > 0) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 const WS_PORT = process.env.WS_PORT || 8080;
-// Ensure no trailing slash on BASE_URL
-const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
+
+// URL Configuration
+// GATEWAY_PUBLIC_URL takes precedence for Webhooks. BASE_URL is legacy fallback or UI redirect.
+const PUBLIC_URL = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
 const AUTH_CALLBACK_PATH = process.env.TWITCH_AUTH_CALLBACK_PATH || '/auth/callback';
 
 // Setup Gateway & Bot
@@ -116,7 +122,7 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/twitch-gate
       console.warn('Index cleanup warning:', e.message);
     }
 
-    if (!missingVars.length) {
+    if (missingVars.length === 0) {
       // Initialize bot (connect chat, cleanup old subscriptions)
       bot.initialize();
     }
@@ -246,7 +252,7 @@ app.delete('/api/me', requireStreamer, async (req, res) => {
 // --- Auth Routes ---
 
 app.get('/auth/login/:type', (req, res) => {
-  if (missingVars.length) return res.status(500).send('Server configuration missing. Check console.');
+  if (missingVars.length && !hasUrl) return res.status(500).send('Server configuration missing. Check console.');
   
   const { type } = req.params;
   const { scopes: customScopes, portal } = req.query;
@@ -275,7 +281,7 @@ app.get('/auth/login/:type', (req, res) => {
   }
   
   const scopeString = scopeList.join(' ');
-  const redirectUri = `${BASE_URL}${AUTH_CALLBACK_PATH}`;
+  const redirectUri = `${PUBLIC_URL}${AUTH_CALLBACK_PATH}`;
   
   // Embed 'portal' flag in state to know where to redirect after callback
   const statePayload = { 
@@ -300,7 +306,7 @@ app.get(AUTH_CALLBACK_PATH, async (req, res) => {
   try {
     const stateData = JSON.parse(decodeURIComponent(state));
     const { type, portal } = stateData;
-    const redirectUri = `${BASE_URL}${AUTH_CALLBACK_PATH}`;
+    const redirectUri = `${PUBLIC_URL}${AUTH_CALLBACK_PATH}`;
 
     const tokenRes = await axios.post('https://id.twitch.tv/oauth2/token', null, {
       params: {
@@ -429,7 +435,13 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 if (isProduction) {
   app.use(express.static(path.join(__dirname, '../client/dist')));
-  app.get('*', (req, res) => {
+  // Fix for wildcard route crash in Express 5+ with path-to-regexp v8
+  // Use regex pattern instead of '*' string
+  app.get('/(.*)', (req, res) => {
+    // Avoid intercepting API calls if they somehow fell through
+    if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/webhooks')) {
+         return res.status(404).send('Not Found');
+    }
     res.sendFile(path.join(__dirname, '../client/dist/index.html'));
   });
 } else {
@@ -445,11 +457,11 @@ if (isProduction) {
 
 app.listen(PORT, () => {
   console.log(`HTTP Server running on port ${PORT}`);
-  if (missingVars.length) {
+  if (missingVars.length && !hasUrl) {
     console.log('\x1b[33m%s\x1b[0m', 'WARNING: Server started with missing environment variables. Auth will fail.');
   } else {
     console.log('\x1b[36m%s\x1b[0m', '------------------------------------------------------------');
-    console.log(`\x1b[1mAuth Callback URL: ${BASE_URL}${AUTH_CALLBACK_PATH}\x1b[0m`);
+    console.log(`\x1b[1mAuth Callback URL: ${PUBLIC_URL}${AUTH_CALLBACK_PATH}\x1b[0m`);
     console.log('\x1b[36m%s\x1b[0m', '------------------------------------------------------------');
   }
 });

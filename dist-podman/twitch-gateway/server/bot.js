@@ -207,7 +207,9 @@ class TwitchBot {
     try {
       const appToken = await this.getAppAccessToken();
       const allSubs = await this.getAllSubscriptions(appToken);
-      const currentCallback = `${process.env.BASE_URL}/webhooks/callback`;
+      
+      const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+      const currentCallback = `${publicUrl}/webhooks/callback`;
       
       let deletedCount = 0;
       for (const sub of allSubs) {
@@ -274,9 +276,10 @@ class TwitchBot {
       }
     ];
 
-    const baseUrl = process.env.BASE_URL;
+    const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
     const secret = process.env.TWITCH_WEBHOOK_SECRET;
-    const callbackUrl = `${baseUrl}/webhooks/callback`;
+    const callbackUrl = `${publicUrl}/webhooks/callback`;
+    
     const appAccessToken = await this.getAppAccessToken();
     const allSubs = await this.getAllSubscriptions(appAccessToken);
 

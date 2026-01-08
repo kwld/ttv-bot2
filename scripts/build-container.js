@@ -173,7 +173,10 @@ services:
       - TWITCH_CLIENT_ID=\${TWITCH_CLIENT_ID}
       - TWITCH_CLIENT_SECRET=\${TWITCH_CLIENT_SECRET}
       - TWITCH_WEBHOOK_SECRET=\${TWITCH_WEBHOOK_SECRET}
-      - BASE_URL=\${BASE_URL}
+      # URL Configuration
+      - BASE_URL=\${APP_PUBLIC_URL}
+      - GATEWAY_PUBLIC_URL=\${GATEWAY_PUBLIC_URL}
+      # Auth
       - ADMIN_PASSWORD=\${ADMIN_PASSWORD}
       - SESSION_SECRET=\${SESSION_SECRET}
     depends_on:
@@ -194,8 +197,10 @@ services:
       - API_KEY=\${API_KEY}
       - TWITCH_CLIENT_ID=\${TWITCH_CLIENT_ID}
       - TWITCH_CLIENT_SECRET=\${TWITCH_CLIENT_SECRET}
-      - BASE_URL=\${BASE_URL}
+      # URL Configuration
+      - BASE_URL=\${APP_PUBLIC_URL}
       - REDIRECT_URI=\${REDIRECT_URI}
+      # Admin
       - SUPER_USER_TWITCH_ID=\${SUPER_USER_TWITCH_ID}
       - SUPER_USER_PASSWORD=\${SUPER_USER_PASSWORD}
     depends_on:
@@ -241,12 +246,46 @@ call ${cmdPrefix} logs -f app
     fs.writeFileSync(path.join(OUTPUT_DIR, 'rebuild.bat'), batContent);
 
 
-    // 8. Finish
+    // 8. Generate .env.example
+    console.log('📝 Generating .env.example...');
+    const envExample = `
+# MongoDB Connection (Internal)
+MONGO_URI=mongodb://mongo:27017/gemini-bot
+
+# Twitch Credentials (Required)
+TWITCH_CLIENT_ID=your_client_id
+TWITCH_CLIENT_SECRET=your_client_secret
+TWITCH_WEBHOOK_SECRET=random_string_for_signing_webhooks
+
+# Gemini API Key (Required for AI features)
+API_KEY=your_gemini_key
+
+# Gateway Configuration
+GATEWAY_TOKEN=generate_a_secure_random_string_here
+
+# URL Configuration
+# APP_PUBLIC_URL: The URL to access the main application (e.g. https://bot.example.com)
+APP_PUBLIC_URL=http://localhost:3001
+# GATEWAY_PUBLIC_URL: The URL for Twitch EventSub Webhooks (e.g. https://gateway.example.com)
+# Must be accessible from the internet over HTTPS for Twitch webhooks to work.
+GATEWAY_PUBLIC_URL=https://your-public-gateway-url.com
+
+# Admin Credentials
+SUPER_USER_TWITCH_ID=your_numeric_twitch_id
+SUPER_USER_PASSWORD=your_app_admin_password
+ADMIN_PASSWORD=your_gateway_admin_password
+SESSION_SECRET=random_session_secret
+`;
+    fs.writeFileSync(path.join(OUTPUT_DIR, '.env.example'), envExample.trim());
+
+
+    // 9. Finish
     console.log(`\n✅ Build files prepared successfully in: ${OUTPUT_DIR}`);
     console.log(`\n👉 To deploy to your server:`);
     console.log(`   1. Copy the folder '${path.basename(OUTPUT_DIR)}' to your server.`);
-    console.log(`   2. Create a '.env' file inside that folder with ALL keys (App + Gateway).`);
-    console.log(`   3. Run the application stack:`);
+    console.log(`   2. Run 'cp .env.example .env' inside that folder.`);
+    console.log(`   3. Edit '.env' with your real API keys and URLs.`);
+    console.log(`   4. Run the application stack:`);
     
     if (tool === 'docker') {
         console.log(`      docker compose up -d --build`);

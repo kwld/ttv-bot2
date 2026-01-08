@@ -1,3 +1,4 @@
+
 const fs = require('fs');
 const path = require('path');
 
@@ -22,8 +23,14 @@ TWITCH_WEBHOOK_SECRET=your_random_secret_string
 
 # Base URL
 # The public HTTPS URL where this server is accessible (e.g. https://your-ngrok.io)
-# Required for Twitch EventSub webhooks
-BASE_URL=https://your-public-url.com
+# Required for OAuth Redirects.
+BASE_URL=https://your-public-app-url.com
+
+# Gateway Public URL
+# The public HTTPS URL specifically for the Gateway (EventSub Webhooks).
+# If different from BASE_URL (e.g. specialized tunnel), set it here.
+# If omitted, defaults to BASE_URL.
+GATEWAY_PUBLIC_URL=https://your-gateway-public-url.com
 
 # OAuth Redirect Path
 # The path where Twitch will redirect users after authentication.
