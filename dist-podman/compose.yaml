@@ -1,0 +1,62 @@
+name: gemini-bot
+
+services:
+  mongo:
+    image: docker.io/library/mongo:latest
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - gemini_net
+
+  gateway:
+    build: ./twitch-gateway
+    restart: always
+    ports:
+      - "8080:8080" # WS
+      - "3000:3000" # HTTP Admin
+    environment:
+      - PORT=3000
+      - WS_PORT=8080
+      - MONGO_URI=mongodb://mongo:27017/twitch-gateway
+      # Secrets from host env
+      - GATEWAY_TOKEN=${GATEWAY_TOKEN}
+      - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID}
+      - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET}
+      - TWITCH_WEBHOOK_SECRET=${TWITCH_WEBHOOK_SECRET}
+      - BASE_URL=${BASE_URL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - SESSION_SECRET=${SESSION_SECRET}
+    depends_on:
+      - mongo
+    networks:
+      - gemini_net
+
+  app:
+    build: .
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - MONGO_URI=mongodb://mongo:27017/gemini-bot
+      - GATEWAY_URL=${GATEWAY_URL:-ws://gateway:8080}
+      - GATEWAY_TOKEN=${GATEWAY_TOKEN}
+      - API_KEY=${API_KEY}
+      - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID}
+      - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET}
+      - BASE_URL=${BASE_URL}
+      - REDIRECT_URI=${REDIRECT_URI}
+      - SUPER_USER_TWITCH_ID=${SUPER_USER_TWITCH_ID}
+      - SUPER_USER_PASSWORD=${SUPER_USER_PASSWORD}
+    depends_on:
+      - mongo
+      - gateway
+    networks:
+      - gemini_net
+
+volumes:
+  mongo_data:
+
+networks:
+  gemini_net:

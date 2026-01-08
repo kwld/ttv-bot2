@@ -1,0 +1,38 @@
+{
+  "name": "twitch-bot-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server/server.js",
+    "server": "nodemon server/server.js",
+    "client": "vite client",
+    "build:client": "vite build client",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,CLIENT\" -c \"cyan.bold,magenta.bold\" \"npm run server\" \"npm run client\"",
+    "create-docker": "node create-dockerfile.js",
+    "build:docker": "npm run create-docker && docker build -t twitch-bot-gateway .",
+    "generate-env": "node create-env-example.js",
+    "cli": "node cli/test-cli.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "express-session": "^1.18.2",
+    "http-proxy-middleware": "^3.0.5",
+    "mongoose": "^9.1.2",
+    "tmi.js": "^1.8.5",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
+    "autoprefixer": "^10.4.23",
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.1.11",
+    "postcss": "^8.5.6",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "tailwindcss": "^4.1.18",
+    "vite": "^7.3.1"
+  }
+}

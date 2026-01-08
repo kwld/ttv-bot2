@@ -1,0 +1,5 @@
+{
+  "name": "Twitch Bot Gateway",
+  "description": "A robust Node.js Twitch EventSub and Chat gateway with internal WebSocket for external app integration. Includes a React admin dashboard and Docker setup.",
+  "requestFramePermissions": []
+}

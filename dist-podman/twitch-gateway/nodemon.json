@@ -1,0 +1,7 @@
+{
+  "watch": ["server", ".env"],
+  "ext": "js,json,env",
+  "ignore": ["client/*", "node_modules/*"],
+  "legacyWatch": true,
+  "exec": "node server/server.js"
+}
