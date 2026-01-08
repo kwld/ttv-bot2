@@ -1,0 +1,32 @@
+{
+  "name": "gemini-bot-flow-studio",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:docker": "node scripts/build-container.js docker",
+    "build:podman": "node scripts/build-container.js podman"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/genai": "^1.34.0",
+    "@monaco-editor/react": "^4.7.0",
+    "i18next": "^23.10.0",
+    "i18next-browser-languagedetector": "^8.0.0",
+    "js-yaml": "^4.1.1",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-i18next": "^15.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "@vitejs/plugin-react": "^5.1.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
+  }
+}

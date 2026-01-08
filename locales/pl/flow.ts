@@ -1,0 +1,75 @@
+
+export const flow = {
+  flow_builder: {
+    jump_to_zone: "Skocz do Grupy",
+    scroll_zoom: "Scroll: Zoom",
+    reset_view: "Reset Widoku",
+    connect_action: "Połącz Nową Akcję",
+    add_node: "Dodaj Węzeł",
+    search_node: "Szukaj węzła...",
+    new_zone: "Nowa Grupa",
+    zone_desc: "Organizuj logikę wizualnie",
+    debug_node: "Uruchom Debug",
+    delete_node: "Usuń Węzeł",
+    add_waypoint: "Dodaj Punkt",
+    disconnect: "Rozłącz",
+    remove_waypoint: "Usuń Punkt",
+    no_nodes_found: "Nie znaleziono węzłów",
+    run_from_here: "Uruchom stąd (Debug)",
+    default_start_delay: "Domyślne Opóźnienie Startu",
+    delay_s: "Opóźnienie (s)",
+    stream_snapshot: "Podgląd Streamu",
+    connect_live_preview: "Połącz z kanałem live aby zobaczyć podgląd",
+    live_badge: "Live",
+    context_required_hint: "Kontekst (User) jest wymagany do obliczenia % lub all.",
+    required_bool_hint: "Wymagane: true, \"tak\", \"yes\""
+  },
+  config_editor: {
+    title: "KONFIGURACJA",
+    section_args: "Definicje Argumentów",
+    section_args_desc: "Określ oczekiwane argumenty dla podpowiedzi (np. !cmd <arg1>)",
+    arg_name: "Nazwa Argumentu",
+    arg_type: "Typ",
+    arg_optional: "Opcjonalny",
+    types: {
+      text: "Tekst",
+      number: "Liczba",
+      user: "Użytkownik (@)"
+    },
+    section_rules: "Zasady Komendy",
+    global_cooldown: "Globalny Cooldown (sek)",
+    global_cooldown_desc: "Czas oczekiwania dla wszystkich po użyciu.",
+    user_cooldown: "User Cooldown (sek)",
+    user_cooldown_desc: "Czas oczekiwania dla konkretnego użytkownika.",
+    section_economy: "Ekonomia Kanału",
+    currency_name: "Nazwa Waluty",
+    currency_symbol: "Symbol Waluty",
+    economy_hint: "Używaj {{currency}} i {{symbol}} w przepływach.",
+    section_constants: "Stałe Przepływu",
+    var_name: "Nazwa Zmiennej",
+    default_val: "Wartość Domyślna",
+    ui_configurable: "Konfigurowalne w UI (Suwak, Lista)",
+    widget_type: "Typ Widżetu",
+    display_label: "Etykieta",
+    options_label: "Opcje (oddzielone przecinkiem)",
+    btn_update: "Aktualizuj Stałą",
+    btn_add: "Dodaj Stałą",
+    no_constants: "Brak zdefiniowanych stałych.",
+    local_save_hint: "Konfiguracja jest zapisywana lokalnie dla kanału."
+  },
+  conditions: {
+    title: "Gałęzie Logiczne",
+    add_case: "+ Dodaj Warunek",
+    branch_name: "Nazwa Gałęzi",
+    no_conditions: "Brak zdefiniowanych warunków.",
+    else_hint: "Domyślnie idzie do ELSE.",
+    select_placeholder: "Wybierz..."
+  },
+  errors: {
+    title: "Scenariusze Błędów",
+    auto_fill: "Auto-Wypełnianie",
+    add: "+ Dodaj",
+    no_handlers: "Brak obsługi błędów.",
+    click_fill: "Kliknij, aby wypełnić domyślne"
+  }
+};

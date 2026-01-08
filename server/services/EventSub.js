@@ -1,0 +1,276 @@
+
+import crypto from 'crypto';
+import { WebSocket } from 'ws';
+import { AuthModel, ChannelSettingsModel } from '../db.js';
+import { usersDB, commandsDB, userSockets, botClient, cachedLiveStreams } from '../context.js';
+
+export class EventSubService {
+    static executorFactory = null;
+
+    static setExecutorFactory(fn) {
+        this.executorFactory = fn;
+    }
+
+    // --- EVENT PROCESSING (FROM GATEWAY) ---
+    
+    static async handleNotification(subscription, event) {
+        if (!event) {
+            return;
+        }
+
+        const type = subscription.type;
+        const broadcasterId = event.broadcaster_user_id;
+        const broadcasterName = event.broadcaster_user_name || event.broadcaster_user_login;
+
+        if (!broadcasterId) {
+            return;
+        }
+
+        const settings = await ChannelSettingsModel.findOne({ channelId: broadcasterId });
+        if (!settings || settings.botEnabled === false) return;
+
+        if (type === 'stream.online') {
+            console.log(`[Gateway] [Online] ${broadcasterName} is now LIVE!`);
+            if (broadcasterName) cachedLiveStreams.add(broadcasterName.toLowerCase());
+            
+            // Gateway handles joins, but we can ensure internal state
+            if (botClient && broadcasterName) botClient.channels.add(broadcasterName.toLowerCase());
+
+            const ws = userSockets.get(broadcasterId);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'LOG', payload: { level: 'success', message: `Stream is ONLINE!` } }));
+            }
+            return;
+        }
+
+        if (type === 'stream.offline') {
+            console.log(`[Gateway] [Offline] ${broadcasterName} went offline.`);
+            if (broadcasterName) cachedLiveStreams.delete(broadcasterName.toLowerCase());
+            
+            const ws = userSockets.get(broadcasterId);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'LOG', payload: { level: 'warning', message: `Stream is OFFLINE.` } }));
+            }
+            return;
+        }
+
+        // --- Standard Logic (Requires Executor) ---
+
+        let eventUserId = event.user_id;
+        let eventUserLogin = event.user_login;
+        let eventUserName = event.user_name;
+
+        if (type === 'channel.chat.notification' && event.chatter_user_id) {
+            eventUserId = event.chatter_user_id;
+            eventUserLogin = event.chatter_user_login;
+            eventUserName = event.chatter_user_name;
+        }
+
+        if (eventUserId) {
+            if (!usersDB[eventUserId]) {
+                usersDB[eventUserId] = { 
+                    id: eventUserId, 
+                    username: eventUserLogin, 
+                    displayName: eventUserName,
+                    points: 0 
+                };
+                if (eventUserLogin) usersDB[eventUserLogin.toLowerCase()] = usersDB[eventUserId];
+            }
+        }
+
+        if (!this.executorFactory) {
+            console.error("[EventSub] Executor Factory not initialized!");
+            return;
+        }
+        
+        const executor = this.executorFactory(broadcasterId, broadcasterName);
+        
+        const user = eventUserId ? {
+            id: eventUserId,
+            username: eventUserLogin,
+            displayName: eventUserName,
+            ...((usersDB[eventUserId] || {})) 
+        } : { id: 'system', username: 'System', displayName: 'System' };
+
+        const runCommand = async (triggerEvents, args = [], eventData = {}) => {
+            const channelCommands = commandsDB.filter(c => c.channelId === broadcasterId && c.enabled);
+            const cmd = channelCommands.find(c => {
+                const events = c.rootAction.settings.eventTriggers || [];
+                return events.some(evt => triggerEvents.includes(evt));
+            });
+
+            if (cmd) {
+                try {
+                    const execId = crypto.randomUUID();
+                    await executor.run(cmd, user, {}, args, {
+                        id: broadcasterId,
+                        name: broadcasterName,
+                        provider: 'twitch',
+                        mode: 'server',
+                        apiEnabled: !!settings.apiEnabled
+                    }, execId, null, eventData);
+                } catch (e) {
+                    console.error("EventSub Exec Error:", e);
+                }
+            }
+        };
+
+        if (type === 'channel.channel_points_custom_reward_redemption.add') {
+            const rewardTitle = event.reward.title;
+            const rewardTitleLower = rewardTitle.toLowerCase();
+            const userInput = event.user_input || '';
+            const cost = event.reward.cost;
+            
+            console.log(`[Gateway] [Points] ${user.displayName} redeemed "${rewardTitle}" (${cost})`);
+
+            const ws = userSockets.get(broadcasterId);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ 
+                    type: 'CHAT_MESSAGE', 
+                    payload: {
+                        id: crypto.randomUUID(),
+                        provider: 'twitch',
+                        channelId: broadcasterId,
+                        channelName: broadcasterName,
+                        text: userInput, 
+                        user: user,
+                        timestamp: Date.now(),
+                        isLive: true,
+                        redemption: {
+                            id: event.reward.id,
+                            title: rewardTitle,
+                            cost: cost
+                        }
+                    } 
+                }));
+            }
+
+            const channelCommands = commandsDB.filter(c => c.channelId === broadcasterId && c.enabled);
+            const matchingCommands = channelCommands.filter(c => {
+                const triggers = (c.rootAction.settings.triggers || '').split(',').map(t => t.trim().toLowerCase());
+                const events = c.rootAction.settings.eventTriggers || [];
+                
+                const titleMatch = triggers.includes(rewardTitleLower) || triggers.includes(`!${rewardTitleLower}`);
+                const eventMatch = events.includes('On Reward Redemption');
+                
+                return titleMatch || eventMatch;
+            });
+
+            for (const cmd of matchingCommands) {
+                const args = userInput.split(/\s+/);
+                try {
+                    const execId = crypto.randomUUID();
+                    await executor.run(cmd, user, {}, args, {
+                        id: broadcasterId,
+                        name: broadcasterName,
+                        provider: 'twitch',
+                        mode: 'server',
+                        apiEnabled: !!settings.apiEnabled
+                    }, execId, null, { isReward: true, rewardTitle, rewardCost: cost });
+                } catch (e) {
+                    console.error("EventSub Exec Error:", e);
+                }
+            }
+        }
+        
+        if (type === 'channel.channel_points_automatic_reward_redemption.add') {
+            const rewardType = event.reward.type; 
+            const cost = event.reward.cost || 0;
+            const text = event.message?.text || '';
+            
+            let logText = `✨ Reward: ${rewardType} (${cost})`;
+            if (rewardType === 'send_highlighted_message') {
+                logText = `🌟 Highlighted Message (${cost}): ${text}`;
+            } else if (text) {
+                logText += ` - ${text}`;
+            }
+
+            const ws = userSockets.get(broadcasterId);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ 
+                    type: 'LOG', 
+                    payload: { 
+                        level: 'success', 
+                        message: `${user.displayName}: ${logText}`
+                    } 
+                }));
+            }
+        }
+
+        if (type === 'channel.follow') {
+            console.log(`[Gateway] [Follow] ${user.displayName} followed ${broadcasterName}`);
+            await runCommand(['On Follow'], [], { isFollow: true });
+        }
+
+        if (type === 'channel.chat.notification') {
+            const noticeType = event.notice_type;
+            const systemMsg = event.system_message;
+            
+            const ws = userSockets.get(broadcasterId);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ 
+                    type: 'CHAT_MESSAGE', 
+                    payload: {
+                        id: crypto.randomUUID(),
+                        provider: 'twitch',
+                        channelId: broadcasterId,
+                        channelName: broadcasterName,
+                        text: systemMsg,
+                        user: { id: 'system', username: 'system', displayName: 'System', badges: {} },
+                        timestamp: Date.now(),
+                        isSystem: true,
+                        metadata: { level: 'success' }, 
+                        isLive: true
+                    } 
+                }));
+            }
+
+            const triggerMap = {
+                'sub': 'On Subscription',
+                'resub': 'On Subscription',
+                'sub_gift': 'On Subscription',
+                'community_sub_gift': 'On Subscription',
+                'gift_paid_upgrade': 'On Subscription',
+                'prime_paid_upgrade': 'On Subscription',
+                'raid': 'On Raid',
+                'unraid': 'On Raid'
+            };
+
+            const eventName = triggerMap[noticeType];
+            if (eventName) {
+                let args = [];
+                if (event.raid) args.push(String(event.raid.viewer_count));
+                if (event.resub) args.push(String(event.resub.cumulative_months));
+                if (event.sub_gift) args.push(String(event.sub_gift.cumulative_total));
+
+                const evtData = {
+                    isSubscription: eventName === 'On Subscription',
+                    isRaid: eventName === 'On Raid'
+                };
+
+                await runCommand([eventName], args, evtData);
+            }
+        }
+
+        if (type === 'channel.update') {
+            const { title, category_name, language } = event;
+            const ws = userSockets.get(broadcasterId);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ 
+                    type: 'LOG', 
+                    payload: { 
+                        level: 'info', 
+                        message: `Channel Update: ${title} [${category_name}]`
+                    } 
+                }));
+            }
+
+            await runCommand(['On Channel Update'], [title, category_name], { 
+                isChannelUpdate: true,
+                title,
+                category: category_name,
+                language
+            });
+        }
+    }
+}

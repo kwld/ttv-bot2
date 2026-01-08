@@ -1,0 +1,75 @@
+
+export const flow = {
+  flow_builder: {
+    jump_to_zone: "Jump to Group",
+    scroll_zoom: "Scroll to Zoom",
+    reset_view: "Reset View",
+    connect_action: "Connect New Action",
+    add_node: "Add Node",
+    search_node: "Search node...",
+    new_zone: "New Group Zone",
+    zone_desc: "Organize logic visually",
+    debug_node: "Run Debug",
+    delete_node: "Delete Node",
+    add_waypoint: "Add Waypoint",
+    disconnect: "Disconnect",
+    remove_waypoint: "Remove Waypoint",
+    no_nodes_found: "No nodes found",
+    run_from_here: "Run From Here (Debug)",
+    default_start_delay: "Default Start Delay",
+    delay_s: "Delay (s)",
+    stream_snapshot: "Stream Snapshot Preview",
+    connect_live_preview: "Connect to live channel to see preview",
+    live_badge: "Live",
+    context_required_hint: "Context (User) is required to calculate % or all.",
+    required_bool_hint: "Required: true, \"tak\", \"yes\""
+  },
+  config_editor: {
+    title: "CONFIGURATION",
+    section_args: "Argument Definitions",
+    section_args_desc: "Define expected arguments to generate chat suggestions (e.g. !cmd <arg1>)",
+    arg_name: "Argument Name",
+    arg_type: "Type",
+    arg_optional: "Optional",
+    types: {
+      text: "Text",
+      number: "Number",
+      user: "User (@)"
+    },
+    section_rules: "Command Rules",
+    global_cooldown: "Global Cooldown (sec)",
+    global_cooldown_desc: "Wait time for everyone after usage.",
+    user_cooldown: "User Cooldown (sec)",
+    user_cooldown_desc: "Wait time for a specific user.",
+    section_economy: "Channel Economy",
+    currency_name: "Currency Name",
+    currency_symbol: "Currency Symbol",
+    economy_hint: "Use {{currency}} and {{symbol}} in your flows.",
+    section_constants: "Flow Constants",
+    var_name: "Variable Name",
+    default_val: "Default Value",
+    ui_configurable: "UI Configurable (Slider, Select, etc.)",
+    widget_type: "Widget Type",
+    display_label: "Display Label",
+    options_label: "Options (Comma separated)",
+    btn_update: "Update Constant",
+    btn_add: "Add Constant",
+    no_constants: "No flow-specific constants defined.",
+    local_save_hint: "Configuration is saved locally per channel."
+  },
+  conditions: {
+    title: "Logic Branches",
+    add_case: "+ Add Case",
+    branch_name: "Branch Name",
+    no_conditions: "No conditions defined.",
+    else_hint: "Flow goes to ELSE.",
+    select_placeholder: "Select..."
+  },
+  errors: {
+    title: "Error Scenarios",
+    auto_fill: "Auto-Fill",
+    add: "+ Add",
+    no_handlers: "No error handlers defined.",
+    click_fill: "Click to Auto-Fill Defaults"
+  }
+};

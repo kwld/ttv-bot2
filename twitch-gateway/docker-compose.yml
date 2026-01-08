@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"  # HTTP / API / Webhooks
+      - "8080:8080"  # Internal Gateway Websocket
+    volumes:
+      - ./config:/app/config  # Persist Auth Tokens
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - WS_PORT=8080
+      - MONGO_URI=mongodb://mongo:27017/twitch-gateway
+      # Ensure these are set in your .env file or environment
+      - TWITCH_CLIENT_ID=${TWITCH_CLIENT_ID}
+      - TWITCH_CLIENT_SECRET=${TWITCH_CLIENT_SECRET}
+      - TWITCH_WEBHOOK_SECRET=${TWITCH_WEBHOOK_SECRET}
+      - BASE_URL=${BASE_URL} # Must be HTTPS (e.g. ngrok) for EventSub
+    depends_on:
+      - mongo
+    command: ["npm", "start"]
+
+volumes:
+  mongo-data:

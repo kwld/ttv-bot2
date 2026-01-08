@@ -1,0 +1,14 @@
+
+import { common } from './common';
+import { ui } from './ui';
+import { flow } from './flow';
+import { plugins } from './plugins';
+import { server } from './server';
+
+export const pl = {
+  ...common,
+  ...ui,
+  ...flow,
+  ...plugins,
+  ...server
+};
