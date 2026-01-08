@@ -12,6 +12,7 @@ import { AuthManager } from './authManager.js';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { EventSubService } from './services/EventSub.js';
+import { broadcastToUser } from './socket.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,17 +65,11 @@ const getExecutor = (channelId, channelName) => {
             }
         },
         onLog: (msg, level) => {
-            const ws = userSockets.get(channelId);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'LOG', payload: { level, message: msg } }));
-            }
+            broadcastToUser(channelId, { type: 'LOG', payload: { level, message: msg } });
             if (IS_DEV) log('Log', `[${channelName}] ${msg}`);
         },
         onNodeStatusUpdate: (nodeId, status, error) => {
-            const ws = userSockets.get(channelId);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'NODE_STATUS', payload: { nodeId, status, error } }));
-            }
+            broadcastToUser(channelId, { type: 'NODE_STATUS', payload: { nodeId, status, error } });
         },
         onWaitingChange: (waiting, executionId) => {
             if (waiting) {
@@ -83,10 +78,7 @@ const getExecutor = (channelId, channelName) => {
                 activeWaitings.delete(executionId);
                 participants.delete(executionId);
             }
-            const ws = userSockets.get(channelId);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'WAITING_UPDATE', payload: { executionId, data: waiting } }));
-            }
+            broadcastToUser(channelId, { type: 'WAITING_UPDATE', payload: { executionId, data: waiting } });
         },
         checkActiveWait: (criteria) => {
             for (const waiting of activeWaitings.values()) {
@@ -309,17 +301,14 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
                 if (!currentList.some(p => p.user.id === user.id)) {
                     currentList.push({ user: fullUser, keyword: cleanMessage });
                     
-                    const ws = userSockets.get(channelOwnerId);
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'NODE_FLASH', payload: { nodeId: waitingData.actionId } }));
-                        ws.send(JSON.stringify({ 
-                            type: 'WAITING_UPDATE', 
-                            payload: { 
-                                executionId, 
-                                data: { ...waitingData, participantCount: currentList.length } 
-                            } 
-                        }));
-                    }
+                    broadcastToUser(channelOwnerId, { type: 'NODE_FLASH', payload: { nodeId: waitingData.actionId } });
+                    broadcastToUser(channelOwnerId, { 
+                        type: 'WAITING_UPDATE', 
+                        payload: { 
+                            executionId, 
+                            data: { ...waitingData, participantCount: currentList.length } 
+                        } 
+                    });
                     
                     if (waitingData.targetUserId) {
                         executor.triggerReply(executionId, { user: fullUser, keyword: cleanMessage });
@@ -400,29 +389,24 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
                 eventData,
                 { all_commands: allCommands }
             );
-            const ws = userSockets.get(channelOwnerId);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                const pointsMap = {};
-                const prefix = `${channelOwnerId}:`;
-                for (const [key, val] of pointsDB.entries()) {
-                    if (key.startsWith(prefix)) {
-                        pointsMap[key.split(':')[1]] = val;
-                    }
+            
+            const pointsMap = {};
+            const prefix = `${channelOwnerId}:`;
+            for (const [key, val] of pointsDB.entries()) {
+                if (key.startsWith(prefix)) {
+                    pointsMap[key.split(':')[1]] = val;
                 }
-                ws.send(JSON.stringify({ type: 'POINTS_UPDATE', payload: pointsMap }));
             }
+            broadcastToUser(channelOwnerId, { type: 'POINTS_UPDATE', payload: pointsMap });
         } catch (e) { console.error("Exec Error", e); }
     }
 };
 
 export const checkStreamsAndManageConnection = async () => {
     // Legacy logic removed. Gateway handles stream monitoring.
-    // This function signature is kept to avoid breaking imports in other files.
-    // It can now just ensure we have channels in memory.
 };
 
 export const trackOnlineTime = async () => {
-    // Only track if we have active streams in cache
     if (cachedLiveStreams.size === 0) return;
     try {
         const now = Date.now();
@@ -430,10 +414,8 @@ export const trackOnlineTime = async () => {
         const bulkOps = [];
 
         for (const channelName of cachedLiveStreams) {
-            // Simple check: active users in DB recently
             Object.values(usersDB).forEach(u => {
                 if (u.lastActive && (now - u.lastActive < 600000)) {
-                    // Update online minutes
                     u.onlineMinutes = (u.onlineMinutes || 0) + 1;
                     updated++;
                     bulkOps.push({ updateOne: { filter: { id: u.id }, update: { $set: { onlineMinutes: u.onlineMinutes } } } });
@@ -449,13 +431,7 @@ export const trackOnlineTime = async () => {
 
 export function initBot(botAuth) {
     if (botClient) botClient.disconnect();
-    
-    // Use Gateway Client instead of TwitchIRCClient
     const client = new GatewayClient();
     client.connect();
-    
-    // Save to context
     setBotClient(client);
-    
-    // We don't save credentials for gateway, it uses env vars
 }

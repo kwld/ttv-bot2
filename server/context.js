@@ -4,7 +4,7 @@ export const usersDB = {};
 export let commandsDB = [];
 export const pointsDB = new Map(); // Key: `${channelId}:${userId}`, Value: Number
 export const executors = new Map();
-export const userSockets = new Map();
+export const userSockets = new Map(); // Key: userId, Value: Set<WebSocket>
 export const authWaiters = new Map();
 export const participants = new Map();
 export const activeWaitings = new Map();
@@ -25,8 +25,8 @@ export const setCommandsDB = (newCmds) => {
 };
 
 export const getUserIdBySocket = (ws) => {
-    for (const [uid, socket] of userSockets.entries()) {
-        if (socket === ws) return uid;
+    for (const [uid, sockets] of userSockets.entries()) {
+        if (sockets.has(ws)) return uid;
     }
     return undefined;
 };

@@ -176,7 +176,7 @@ export const useServerBridge = ({
             const userObj: User = { 
                 id: identity.userId, 
                 username: identity.username, 
-                displayName: identity.username,
+                displayName: identity.username, 
                 badgeIcons: []
             };
             setAuthenticatedUser(userObj);
@@ -336,10 +336,13 @@ export const useServerBridge = ({
         bridge.connect();
 
         return () => {
-            // Note: We deliberately do NOT disconnect the bridge on unmount of this hook,
-            // because this hook is used in App.tsx and might re-run on prop changes.
-            // If the URL changes, the specific check block above handles disconnection.
-            // The only time we fully kill it is on explicit logout or app unload.
+            // Disconnect bridge on unmount to prevent multiple connections (especially in multi-tab scenarios)
+            // or when URL changes
+            if (serverBridgeRef.current) {
+                serverBridgeRef.current.disconnect();
+                serverBridgeRef.current = null;
+            }
+            setIsBridgeConnected(false);
         };
     }, [serverUrl, serverToken]); // Ensure dependencies trigger the logic
 

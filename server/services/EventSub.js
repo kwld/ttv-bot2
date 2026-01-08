@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { WebSocket } from 'ws';
 import { AuthModel, ChannelSettingsModel } from '../db.js';
 import { usersDB, commandsDB, userSockets, botClient, cachedLiveStreams } from '../context.js';
+import { broadcastToUser } from '../socket.js';
 
 export class EventSubService {
     static executorFactory = null;
@@ -36,10 +37,7 @@ export class EventSubService {
             // Gateway handles joins, but we can ensure internal state
             if (botClient && broadcasterName) botClient.channels.add(broadcasterName.toLowerCase());
 
-            const ws = userSockets.get(broadcasterId);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'LOG', payload: { level: 'success', message: `Stream is ONLINE!` } }));
-            }
+            broadcastToUser(broadcasterId, { type: 'LOG', payload: { level: 'success', message: `Stream is ONLINE!` } });
             return;
         }
 
@@ -47,10 +45,7 @@ export class EventSubService {
             console.log(`[Gateway] [Offline] ${broadcasterName} went offline.`);
             if (broadcasterName) cachedLiveStreams.delete(broadcasterName.toLowerCase());
             
-            const ws = userSockets.get(broadcasterId);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'LOG', payload: { level: 'warning', message: `Stream is OFFLINE.` } }));
-            }
+            broadcastToUser(broadcasterId, { type: 'LOG', payload: { level: 'warning', message: `Stream is OFFLINE.` } });
             return;
         }
 
@@ -124,27 +119,24 @@ export class EventSubService {
             
             console.log(`[Gateway] [Points] ${user.displayName} redeemed "${rewardTitle}" (${cost})`);
 
-            const ws = userSockets.get(broadcasterId);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ 
-                    type: 'CHAT_MESSAGE', 
-                    payload: {
-                        id: crypto.randomUUID(),
-                        provider: 'twitch',
-                        channelId: broadcasterId,
-                        channelName: broadcasterName,
-                        text: userInput, 
-                        user: user,
-                        timestamp: Date.now(),
-                        isLive: true,
-                        redemption: {
-                            id: event.reward.id,
-                            title: rewardTitle,
-                            cost: cost
-                        }
-                    } 
-                }));
-            }
+            broadcastToUser(broadcasterId, { 
+                type: 'CHAT_MESSAGE', 
+                payload: {
+                    id: crypto.randomUUID(),
+                    provider: 'twitch',
+                    channelId: broadcasterId,
+                    channelName: broadcasterName,
+                    text: userInput, 
+                    user: user,
+                    timestamp: Date.now(),
+                    isLive: true,
+                    redemption: {
+                        id: event.reward.id,
+                        title: rewardTitle,
+                        cost: cost
+                    }
+                } 
+            });
 
             const channelCommands = commandsDB.filter(c => c.channelId === broadcasterId && c.enabled);
             const matchingCommands = channelCommands.filter(c => {
@@ -200,16 +192,13 @@ export class EventSubService {
                 logText += ` - ${text}`;
             }
 
-            const ws = userSockets.get(broadcasterId);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ 
-                    type: 'LOG', 
-                    payload: { 
-                        level: 'success', 
-                        message: `${user.displayName}: ${logText}`
-                    } 
-                }));
-            }
+            broadcastToUser(broadcasterId, { 
+                type: 'LOG', 
+                payload: { 
+                    level: 'success', 
+                    message: `${user.displayName}: ${logText}`
+                } 
+            });
 
             const eventData = {
                 isAutoReward: true,
@@ -242,24 +231,21 @@ export class EventSubService {
             const noticeType = event.notice_type;
             const systemMsg = event.system_message;
             
-            const ws = userSockets.get(broadcasterId);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ 
-                    type: 'CHAT_MESSAGE', 
-                    payload: {
-                        id: crypto.randomUUID(),
-                        provider: 'twitch',
-                        channelId: broadcasterId,
-                        channelName: broadcasterName,
-                        text: systemMsg,
-                        user: { id: 'system', username: 'system', displayName: 'System', badges: {} },
-                        timestamp: Date.now(),
-                        isSystem: true,
-                        metadata: { level: 'success' }, 
-                        isLive: true
-                    } 
-                }));
-            }
+            broadcastToUser(broadcasterId, { 
+                type: 'CHAT_MESSAGE', 
+                payload: {
+                    id: crypto.randomUUID(),
+                    provider: 'twitch',
+                    channelId: broadcasterId,
+                    channelName: broadcasterName,
+                    text: systemMsg,
+                    user: { id: 'system', username: 'system', displayName: 'System', badges: {} },
+                    timestamp: Date.now(),
+                    isSystem: true,
+                    metadata: { level: 'success' }, 
+                    isLive: true
+                } 
+            });
 
             const triggerMap = {
                 'sub': 'On Subscription',
@@ -325,16 +311,13 @@ export class EventSubService {
         // --- CHANNEL UPDATE ---
         if (type === 'channel.update') {
             const { title, category_name, language, is_mature } = event;
-            const ws = userSockets.get(broadcasterId);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ 
-                    type: 'LOG', 
-                    payload: { 
-                        level: 'info', 
-                        message: `Channel Update: ${title} [${category_name}]`
-                    } 
-                }));
-            }
+            broadcastToUser(broadcasterId, { 
+                type: 'LOG', 
+                payload: { 
+                    level: 'info', 
+                    message: `Channel Update: ${title} [${category_name}]`
+                } 
+            });
 
             await runCommand(['On Channel Update'], [title, category_name], { 
                 isChannelUpdate: true,

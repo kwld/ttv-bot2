@@ -17,12 +17,21 @@ const log = (tag, msg) => {
     console.log(`[${time}] [${tag}] ${msg}`);
 };
 
+export const broadcastToUser = (userId, message) => {
+    const sockets = userSockets.get(userId);
+    if (sockets && sockets.size > 0) {
+        const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
+        for (const ws of sockets) {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(msgStr);
+            }
+        }
+    }
+};
+
 // Setup ProcessManager Broadcaster
 processManager.setBroadcaster((channelId, message) => {
-    const ws = userSockets.get(channelId);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(message));
-    }
+    broadcastToUser(channelId, message);
 });
 
 export const handleConnection = async (ws, req) => {
@@ -39,10 +48,16 @@ export const handleConnection = async (ws, req) => {
                     usersDB[session.userId] = { id: session.userId, username: session.username, displayName: session.username };
                     usersDB[session.username.toLowerCase()] = usersDB[session.userId];
                 }
-                const oldSocket = userSockets.get(session.userId);
-                if (oldSocket && oldSocket !== ws && oldSocket.readyState === WebSocket.OPEN) oldSocket.close();
-                userSockets.set(session.userId, ws);
-                log('WS', `Authenticated client: ${session.username} (${session.userId})`);
+                
+                // Add to Set of sockets for this user (Multi-tab support)
+                let sockets = userSockets.get(session.userId);
+                if (!sockets) {
+                    sockets = new Set();
+                    userSockets.set(session.userId, sockets);
+                }
+                sockets.add(ws);
+                
+                log('WS', `Authenticated client: ${session.username} (${session.userId}) [Connections: ${sockets.size}]`);
                 
                 checkStreamsAndManageConnection();
                 
@@ -89,9 +104,15 @@ export const handleConnection = async (ws, req) => {
     ws.on('close', () => {
         authWaiters.forEach((socket, key) => { if (socket === ws) authWaiters.delete(key); });
         const uid = getUserIdBySocket(ws);
-        if (uid && userSockets.get(uid) === ws) {
-            userSockets.delete(uid);
-            log('WS', `Client disconnected: ${uid}`);
+        if (uid) {
+            const sockets = userSockets.get(uid);
+            if (sockets) {
+                sockets.delete(ws);
+                if (sockets.size === 0) {
+                    userSockets.delete(uid);
+                    log('WS', `Client disconnected: ${uid}`);
+                }
+            }
             checkStreamsAndManageConnection();
         }
     });

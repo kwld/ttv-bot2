@@ -12,6 +12,7 @@ import { commandsDB, usersDB, cachedLiveStreams, userSockets, authWaiters, admin
 import { requireChannelAccess, requireAuth } from './middleware/permissions.js';
 import { AiAuditor } from './services/AiAuditor.js';
 import { AiBuilder } from './services/AiBuilder.js';
+import { broadcastToUser } from './socket.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -339,8 +340,8 @@ router.post('/api/commands', requireChannelAccess, async (req, res) => {
         if (idx !== -1) commandsDB[idx] = sanitized;
         else commandsDB.push(sanitized);
         await CommandModel.findOneAndUpdate({ id: sanitized.id, channelId }, sanitized, { upsert: true });
-        const ws = userSockets.get(channelId);
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'COMMAND_SAVED', payload: { id: sanitized.id, timestamp: Date.now() } }));
+        
+        broadcastToUser(channelId, { type: 'COMMAND_SAVED', payload: { id: sanitized.id, timestamp: Date.now() } });
         res.json({ success: true, commandId: sanitized.id });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -354,8 +355,8 @@ router.post('/api/commands/batch', requireChannelAccess, async (req, res) => {
         commandsDB.push(...sanitized);
         await CommandModel.deleteMany({ channelId });
         if (sanitized.length > 0) await CommandModel.insertMany(sanitized);
-        const ws = userSockets.get(channelId);
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'COMMAND_SAVED', payload: { id: 'batch', timestamp: Date.now() } }));
+        
+        broadcastToUser(channelId, { type: 'COMMAND_SAVED', payload: { id: 'batch', timestamp: Date.now() } });
         res.json({ success: true, count: sanitized.length });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -562,7 +563,7 @@ router.get('/api/admin/status', adminAuth, async (req, res) => {
         const list = [];
         auths.forEach(a => {
             const settings = channels.find(s => s.channelId === a.userId);
-            list.push({ id: a.userId, name: a.username, authType: 'OAUTH', clientCount: userSockets.has(a.userId) ? 1 : 0, apiEnabled: settings ? settings.apiEnabled : false, isLocked: settings ? (settings.isLocked || settings.serverLocked) : false, botEnabled: settings ? settings.botEnabled : true, editors: settings ? (settings.editors || []) : [] });
+            list.push({ id: a.userId, name: a.username, authType: 'OAUTH', clientCount: userSockets.get(a.userId) ? userSockets.get(a.userId).size : 0, apiEnabled: settings ? settings.apiEnabled : false, isLocked: settings ? (settings.isLocked || settings.serverLocked) : false, botEnabled: settings ? settings.botEnabled : true, editors: settings ? (settings.editors || []) : [] });
         });
         channels.forEach(c => {
             if (!list.find(x => x.id === c.channelId)) {
