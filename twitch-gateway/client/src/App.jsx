@@ -48,9 +48,76 @@ const REQUIRED_SCOPES = DEFAULT_SCOPES;
 
 // --- Components ---
 
+const AuthModal = ({ isOpen, onClose, initialScopes = DEFAULT_SCOPES }) => {
+    const [selectedScopes, setSelectedScopes] = useState(initialScopes);
+
+    useEffect(() => {
+        if(isOpen) setSelectedScopes(initialScopes);
+    }, [isOpen, initialScopes]);
+
+    if (!isOpen) return null;
+
+    const toggleScope = (id) => {
+        if (selectedScopes.includes(id)) {
+            setSelectedScopes(selectedScopes.filter(s => s !== id));
+        } else {
+            setSelectedScopes([...selectedScopes, id]);
+        }
+    };
+
+    const handleConnect = () => {
+        const scopeString = selectedScopes.join(',');
+        window.location.href = `/auth/login/streamer?portal=true&scopes=${encodeURIComponent(scopeString)}`;
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-800 rounded-lg shadow-2xl border border-gray-700 w-full max-w-lg overflow-hidden">
+                <div className="bg-gray-750 p-4 border-b border-gray-700 flex justify-between items-center">
+                    <h3 className="text-lg font-bold text-white">Connect Streamer Account</h3>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white">&times;</button>
+                </div>
+                <div className="p-6">
+                    <p className="text-sm text-gray-400 mb-4">
+                        Select the permissions (scopes) you want to grant to the bot gateway. 
+                        Required scopes are recommended for full functionality.
+                    </p>
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto mb-6">
+                        {SCOPE_DEFINITIONS.map(scope => (
+                            <label key={scope.id} className="flex items-start gap-3 p-2 rounded hover:bg-gray-750 cursor-pointer border border-transparent hover:border-gray-700">
+                                <input 
+                                    type="checkbox" 
+                                    checked={selectedScopes.includes(scope.id)}
+                                    onChange={() => toggleScope(scope.id)}
+                                    className="mt-1 w-4 h-4 rounded border-gray-600 bg-gray-700 text-purple-600 focus:ring-purple-500 focus:ring-offset-gray-800"
+                                />
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium text-gray-200">{scope.label}</span>
+                                        {scope.required && <span className="text-[10px] bg-blue-900 text-blue-200 px-1.5 rounded">Rec</span>}
+                                    </div>
+                                    <div className="text-xs text-gray-500">{scope.description}</div>
+                                    <div className="text-[10px] font-mono text-gray-600 mt-0.5">{scope.id}</div>
+                                </div>
+                            </label>
+                        ))}
+                    </div>
+                    <div className="flex justify-end gap-3">
+                        <button onClick={onClose} className="px-4 py-2 text-gray-300 hover:text-white text-sm">Cancel</button>
+                        <button onClick={handleConnect} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-bold text-sm">
+                            Connect with Twitch
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const Login = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -94,14 +161,20 @@ const Login = ({ onLogin }) => {
         
         <div className="border-t border-gray-700 pt-6 text-center">
             <p className="text-gray-400 text-sm mb-3">Are you a streamer?</p>
-            <a 
-                href="/auth/login/streamer?portal=true"
+            <button 
+                onClick={() => setShowAuthModal(true)}
                 className="inline-block w-full bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded transition-colors"
             >
                 Manage My Streamer Account
-            </a>
+            </button>
         </div>
       </div>
+      
+      <AuthModal 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)}
+        initialScopes={DEFAULT_SCOPES} 
+      />
     </div>
   );
 };
@@ -251,72 +324,6 @@ const StreamerDashboard = ({ logout }) => {
                             </table>
                         </div>
                     )}
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const AuthModal = ({ isOpen, onClose, initialScopes = DEFAULT_SCOPES }) => {
-    const [selectedScopes, setSelectedScopes] = useState(initialScopes);
-
-    useEffect(() => {
-        if(isOpen) setSelectedScopes(initialScopes);
-    }, [isOpen, initialScopes]);
-
-    if (!isOpen) return null;
-
-    const toggleScope = (id) => {
-        if (selectedScopes.includes(id)) {
-            setSelectedScopes(selectedScopes.filter(s => s !== id));
-        } else {
-            setSelectedScopes([...selectedScopes, id]);
-        }
-    };
-
-    const handleConnect = () => {
-        const scopeString = selectedScopes.join(',');
-        window.location.href = `/auth/login/streamer?scopes=${encodeURIComponent(scopeString)}`;
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-            <div className="bg-gray-800 rounded-lg shadow-2xl border border-gray-700 w-full max-w-lg overflow-hidden">
-                <div className="bg-gray-750 p-4 border-b border-gray-700 flex justify-between items-center">
-                    <h3 className="text-lg font-bold text-white">Connect Streamer Account</h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white">&times;</button>
-                </div>
-                <div className="p-6">
-                    <p className="text-sm text-gray-400 mb-4">
-                        Select the permissions (scopes) you want to grant to the bot gateway. 
-                        Required scopes are recommended for full functionality.
-                    </p>
-                    <div className="space-y-3 max-h-[300px] overflow-y-auto mb-6">
-                        {SCOPE_DEFINITIONS.map(scope => (
-                            <label key={scope.id} className="flex items-start gap-3 p-2 rounded hover:bg-gray-750 cursor-pointer border border-transparent hover:border-gray-700">
-                                <input 
-                                    type="checkbox" 
-                                    checked={selectedScopes.includes(scope.id)}
-                                    onChange={() => toggleScope(scope.id)}
-                                    className="mt-1 w-4 h-4 rounded border-gray-600 bg-gray-700 text-purple-600 focus:ring-purple-500 focus:ring-offset-gray-800"
-                                />
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-medium text-gray-200">{scope.label}</span>
-                                        {scope.required && <span className="text-[10px] bg-blue-900 text-blue-200 px-1.5 rounded">Rec</span>}
-                                    </div>
-                                    <div className="text-xs text-gray-500">{scope.description}</div>
-                                    <div className="text-[10px] font-mono text-gray-600 mt-0.5">{scope.id}</div>
-                                </div>
-                            </label>
-                        ))}
-                    </div>
-                    <div className="flex justify-end gap-3">
-                        <button onClick={onClose} className="px-4 py-2 text-gray-300 hover:text-white text-sm">Cancel</button>
-                        <button onClick={handleConnect} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded font-bold text-sm">
-                            Connect with Twitch
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>

@@ -1,9 +1,8 @@
 
 const path = require('path');
+const fs = require('fs');
 
 // FIX: Suppress TMI.js Deprecation Warning (DEP0060)
-// TMI.js uses util._extend which is deprecated in Node.js.
-// This filter prevents it from cluttering the console.
 const originalEmitWarning = process.emitWarning;
 process.emitWarning = (warning, ...args) => {
     if (typeof warning === 'string' && warning.includes('util._extend')) return;
@@ -51,7 +50,6 @@ const PORT = process.env.PORT || 3000;
 const WS_PORT = process.env.WS_PORT || 8080;
 
 // URL Configuration
-// GATEWAY_PUBLIC_URL takes precedence for Webhooks. BASE_URL is legacy fallback or UI redirect.
 const PUBLIC_URL = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
 const AUTH_CALLBACK_PATH = process.env.TWITCH_AUTH_CALLBACK_PATH || '/auth/callback';
 
@@ -207,15 +205,12 @@ app.delete('/api/bot', requireAuth, async (req, res) => {
 
 app.get('/api/me', requireStreamer, async (req, res) => {
     try {
-        // If admin is browsing, this endpoint might not make sense unless they have a linked streamer account,
-        // but it's primarily for the 'portal' view.
         if (!req.session.streamerId) return res.status(404).json({ error: 'Not logged in as streamer' });
         
         const streamer = await Token.findOne({ twitchId: req.session.streamerId, type: 'streamer' })
             .select('twitchId login displayName avatar obtainedAt scope');
         
         if (!streamer) {
-            // Token might have been deleted but session remains
             req.session.streamerId = null;
             return res.status(404).json({ error: 'Streamer account not found' });
         }
@@ -241,7 +236,7 @@ app.delete('/api/me', requireStreamer, async (req, res) => {
         if (!req.session.streamerId) return res.status(400).json({ error: 'Not logged in as streamer' });
         
         await bot.removeStreamer(req.session.streamerId);
-        req.session.destroy(); // Logout
+        req.session.destroy(); 
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -257,20 +252,17 @@ app.get('/auth/login/:type', (req, res) => {
   const { type } = req.params;
   const { scopes: customScopes, portal } = req.query;
 
-  // Security check: Only Admins can auth as 'bot'
   if (type === 'bot' && (!req.session || !req.session.isAdmin)) {
       return res.status(401).send('Unauthorized: Only admins can authenticate the bot account.');
   }
 
-  // Minimal scopes defaults
   const defaultStreamerScopes = [
-      'channel:read:redemptions', // Custom Rewards
-      'bits:read',                // Bits
-      'moderator:read:followers', // Follows
-      'channel:read:subscriptions' // Subs
+      'channel:read:redemptions', 
+      'bits:read',                
+      'moderator:read:followers', 
+      'channel:read:subscriptions' 
   ];
   
-  // Bot needs user:read:chat for EventSub chat messages, plus chat:read/edit for legacy/TMI
   const defaultBotScopes = ['chat:read', 'chat:edit', 'user:read:chat', 'user:bot'];
 
   let scopeList = [];
@@ -283,16 +275,14 @@ app.get('/auth/login/:type', (req, res) => {
   const scopeString = scopeList.join(' ');
   const redirectUri = `${PUBLIC_URL}${AUTH_CALLBACK_PATH}`;
   
-  // Embed 'portal' flag in state to know where to redirect after callback
   const statePayload = { 
       type, 
       nonce: crypto.randomBytes(16).toString('hex'),
-      portal: portal === 'true' // If true, user is logging into the public portal
+      portal: portal === 'true'
   };
   
   const state = JSON.stringify(statePayload);
   
-  // force_verify=true ensures the user sees the Twitch login screen to pick the right account
   const url = `https://id.twitch.tv/oauth2/authorize?client_id=${process.env.TWITCH_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopeString)}&state=${encodeURIComponent(state)}&force_verify=true`;
   
   res.redirect(url);
@@ -333,10 +323,7 @@ app.get(AUTH_CALLBACK_PATH, async (req, res) => {
 
     const user = userRes.data.data[0];
 
-    // If authenticating as a bot, ensure we have a clean slate for single bot instance
     if (type === 'bot') {
-        // Admin check should have happened at initiation, but double check not strictly necessary here 
-        // as long as we only allow bot type update via admin action.
         await Token.deleteMany({ type: 'bot' });
     }
 
@@ -364,12 +351,10 @@ app.get(AUTH_CALLBACK_PATH, async (req, res) => {
     } else {
       await bot.setupEventSub(tokenDoc);
       
-      // If user was logging in to the portal, set session for them
       if (portal) {
           req.session.streamerId = user.id;
           res.redirect('/?view=streamer');
       } else {
-          // Admin added a streamer, redirect back to admin dashboard
           res.redirect('/?success=true');
       }
     }
@@ -393,7 +378,6 @@ const verifyTwitchSignature = (req, res, buf) => {
       return false;
   }
 
-  // Ensure buf is treated as utf-8 string for consistent hashing
   const hmacMessage = messageId + timestamp + buf.toString('utf8');
   const hmac = 'sha256=' + crypto.createHmac('sha256', process.env.TWITCH_WEBHOOK_SECRET)
     .update(hmacMessage)
@@ -418,7 +402,6 @@ app.post('/webhooks/callback', (req, res) => {
 
   if (type === 'webhook_callback_verification') {
     console.log(`[EventSub] Verifying subscription: ${data.subscription.type}`);
-    // Respond with 200 OK and the challenge as plain text
     res.setHeader('Content-Type', 'text/plain');
     return res.send(data.challenge);
   }
@@ -426,8 +409,6 @@ app.post('/webhooks/callback', (req, res) => {
   if (type === 'notification') {
     const subscription = data.subscription;
     
-    // Broadcast the FULL payload data (including subscription and event fields)
-    // The 'type' in broadcast will be the Twitch EventSub type (e.g., 'channel.chat.message')
     if (subscription && subscription.type) {
         console.log(`Event: ${subscription.type} | Streamer: ${data.event?.broadcaster_user_login || 'unknown'}`);
         gateway.broadcast(subscription.type, data);
@@ -444,26 +425,27 @@ app.post('/webhooks/callback', (req, res) => {
   res.sendStatus(200);
 });
 
-// --- Frontend & Proxy ---
-
-app.get('/bot-admin', (req, res) => res.redirect('/'));
-app.get('/stream-admin', (req, res) => res.redirect('/'));
-
+// --- Frontend Serving ---
 const isProduction = process.env.NODE_ENV === 'production';
 
 if (isProduction) {
-  app.use(express.static(path.join(__dirname, '../client/dist')));
-  // Fix for wildcard route crash in Express 5+ with path-to-regexp v8
-  // Use regex pattern instead of '*' string
-  app.get(/(.*)/, (req, res) => {
-    // Avoid intercepting API calls if they somehow fell through
+  const publicPath = path.join(__dirname, '../public');
+  if (!fs.existsSync(publicPath) || !fs.existsSync(path.join(publicPath, 'index.html'))) {
+     console.error("CRITICAL: Public frontend not found in " + publicPath + ". Build the client first.");
+  }
+  
+  app.use(express.static(publicPath));
+  
+  // SPA Fallback
+  app.get(/(.*)/, (req, res, next) => {
+    // Skip API routes
     if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/webhooks')) {
-         return res.status(404).send('Not Found');
+         return next();
     }
-    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+    res.sendFile(path.join(publicPath, 'index.html'));
   });
 } else {
-  // Proxy unknown requests to Vite dev server
+  // Proxy unknown requests to Vite dev server in development
   const { createProxyMiddleware } = require('http-proxy-middleware');
   app.use(createProxyMiddleware({
     target: 'http://localhost:5173',

@@ -4,6 +4,18 @@ const axios = require('axios');
 const { Token } = require('./models');
 const crypto = require('crypto');
 
+const SCOPE_REQUIREMENTS = {
+  'channel.follow': 'moderator:read:followers',
+  'channel.subscribe': 'channel:read:subscriptions',
+  'channel.subscription.end': 'channel:read:subscriptions',
+  'channel.subscription.gift': 'channel:read:subscriptions',
+  'channel.subscription.message': 'channel:read:subscriptions',
+  'channel.cheer': 'bits:read',
+  'channel.bits.use': 'bits:read',
+  'channel.channel_points_custom_reward_redemption.add': 'channel:read:redemptions',
+  'channel.channel_points_automatic_reward_redemption.add': 'channel:read:redemptions'
+};
+
 class TwitchBot {
   constructor(gateway) {
     this.gateway = gateway;
@@ -315,6 +327,12 @@ class TwitchBot {
     const allSubs = await this.getAllSubscriptions(appAccessToken);
 
     for (const def of definitions) {
+        // Scope Validation: Check if the token has the required scope for this subscription
+        const requiredScope = SCOPE_REQUIREMENTS[def.type];
+        if (requiredScope && (!streamerToken.scope || !streamerToken.scope.includes(requiredScope))) {
+            continue; // Skip if scope missing
+        }
+
         // Construct the expected condition
         const condition = { broadcaster_user_id: streamerToken.twitchId };
         if (def.requiresModerator) {

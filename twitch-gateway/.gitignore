@@ -1,3 +1,4 @@
+
 # Dependencies
 node_modules/
 client/node_modules/
@@ -10,6 +11,7 @@ client/node_modules/
 dist/
 build/
 client/dist/
+public/
 
 # Config
 config/gateway-token.json
