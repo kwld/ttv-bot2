@@ -266,9 +266,15 @@ GATEWAY_TOKEN=generate_a_secure_random_string_here
 # URL Configuration
 # APP_PUBLIC_URL: The URL to access the main application (e.g. https://bot.example.com)
 APP_PUBLIC_URL=http://localhost:3001
+
 # GATEWAY_PUBLIC_URL: The URL for Twitch EventSub Webhooks (e.g. https://gateway.example.com)
 # Must be accessible from the internet over HTTPS for Twitch webhooks to work.
 GATEWAY_PUBLIC_URL=https://your-public-gateway-url.com
+
+# OAuth Redirect URI
+# The full URL where Twitch will redirect users after login.
+# Typically: \${APP_PUBLIC_URL}/auth/callback
+REDIRECT_URI=http://localhost:3001/auth/callback
 
 # Admin Credentials
 SUPER_USER_TWITCH_ID=your_numeric_twitch_id

@@ -287,9 +287,6 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
       triggerIndex: number;
   }>({ isActive: false, type: null, query: '', activeIndex: 0, triggerIndex: -1 });
 
-  // Rotating Placeholder State
-  const [placeholderIndex, setPlaceholderIndex] = useState(0);
-
   // Formatting helpers for circular progress
   const formatTime = (seconds: number) => {
       const m = Math.floor(seconds / 60);
@@ -533,14 +530,6 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
       return false;
   }, [activeChannel, channels]);
 
-  // Rotating Placeholder Interval
-  useEffect(() => {
-      const interval = setInterval(() => {
-          setPlaceholderIndex(prev => prev + 1);
-      }, 3000); // Faster rotation (3s)
-      return () => clearInterval(interval);
-  }, []);
-
   const placeholderText = useMemo(() => {
       if (isConflictDisabled) return "Switch to Client Mode to chat (Server mode restricted)";
       if (isTwitchConnected && !isChatEnabled) return "Chat Input Disabled (Limited Scope / Read Only)";
@@ -554,21 +543,14 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
       
       if (placeholders.length === 0) return t('chat.placeholder_no_commands');
 
-      // Check if we can fit all commands in a reasonable length (e.g. 60 chars)
-      const allJoined = placeholders.join(', ');
-      if (allJoined.length < 60) {
-           return `${t('chat.try_typing')} ${allJoined}`;
-      }
+      // Simplified: Just list all
+      return `${t('chat.try_typing')} ${placeholders.join(', ')}`;
+  }, [placeholders, isReadOnly, activeCommands.length, commands, t, isTwitchConnected, isChatEnabled, isConflictDisabled, activeChannel.id]);
 
-      // Cycle chunks of 3 for better visibility if too long
-      const count = placeholders.length;
-      const chunkCount = Math.ceil(count / 3);
-      const idx = placeholderIndex % chunkCount;
-      const start = idx * 3;
-      const chunk = placeholders.slice(start, start + 3);
-      
-      return `${t('chat.try_typing')} ${chunk.join(', ')}...`;
-  }, [placeholders, isReadOnly, activeCommands.length, commands, t, isTwitchConnected, isChatEnabled, isConflictDisabled, placeholderIndex, activeChannel.id]);
+  const allCommandsTooltip = useMemo(() => {
+      if (placeholders.length === 0) return '';
+      return `${t('chat.try_typing')} ${placeholders.join(', ')}`;
+  }, [placeholders, t]);
 
   useEffect(() => { 
       if (!isPaused) {
@@ -1079,6 +1061,7 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
                     onChange={handleInputChange} 
                     onKeyDown={handleInputKeyDown}
                     placeholder={placeholderText} 
+                    title={allCommandsTooltip} 
                     disabled={isInputDisabled}
                     className={`w-full h-full bg-[#0d1117] border border-[#2d3446] py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-600 shadow-inner ${showSimulatorTools ? 'rounded-r-xl rounded-l-none border-l-0 pl-3' : 'rounded-xl pl-4'} pr-10 ${isInputDisabled ? 'cursor-not-allowed opacity-70' : ''}`}
                 />
