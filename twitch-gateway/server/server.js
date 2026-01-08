@@ -437,7 +437,7 @@ if (isProduction) {
   app.use(express.static(path.join(__dirname, '../client/dist')));
   // Fix for wildcard route crash in Express 5+ with path-to-regexp v8
   // Use regex pattern instead of '*' string
-  app.get('/(.*)', (req, res) => {
+  app.get(/(.*)/, (req, res) => {
     // Avoid intercepting API calls if they somehow fell through
     if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/webhooks')) {
          return res.status(404).send('Not Found');
