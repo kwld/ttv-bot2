@@ -388,14 +388,24 @@ const verifyTwitchSignature = (req, res, buf) => {
   const timestamp = req.header('Twitch-Eventsub-Message-Timestamp');
   const signature = req.header('Twitch-Eventsub-Message-Signature');
 
-  if (!process.env.TWITCH_WEBHOOK_SECRET) return false;
+  if (!process.env.TWITCH_WEBHOOK_SECRET) {
+      console.error("Missing TWITCH_WEBHOOK_SECRET in environment");
+      return false;
+  }
 
-  const hmacMessage = messageId + timestamp + buf;
+  // Ensure buf is treated as utf-8 string for consistent hashing
+  const hmacMessage = messageId + timestamp + buf.toString('utf8');
   const hmac = 'sha256=' + crypto.createHmac('sha256', process.env.TWITCH_WEBHOOK_SECRET)
     .update(hmacMessage)
     .digest('hex');
 
-  return hmac === signature;
+  const match = hmac === signature;
+  
+  if (!match) {
+      console.warn(`[Security] Webhook Signature Mismatch! Expected: ${hmac}, Got: ${signature}`);
+  }
+  
+  return match;
 };
 
 app.post('/webhooks/callback', (req, res) => {
@@ -407,6 +417,9 @@ app.post('/webhooks/callback', (req, res) => {
   const data = JSON.parse(req.body.toString());
 
   if (type === 'webhook_callback_verification') {
+    console.log(`[EventSub] Verifying subscription: ${data.subscription.type}`);
+    // Respond with 200 OK and the challenge as plain text
+    res.setHeader('Content-Type', 'text/plain');
     return res.send(data.challenge);
   }
 
@@ -421,6 +434,11 @@ app.post('/webhooks/callback', (req, res) => {
     }
     
     return res.sendStatus(204);
+  }
+  
+  if (type === 'revocation') {
+      console.warn(`[EventSub] Subscription revoked: ${data.subscription.type} (Reason: ${data.subscription.status})`);
+      return res.sendStatus(204);
   }
 
   res.sendStatus(200);

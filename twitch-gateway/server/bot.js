@@ -2,6 +2,7 @@
 const tmi = require('tmi.js');
 const axios = require('axios');
 const { Token } = require('./models');
+const crypto = require('crypto');
 
 class TwitchBot {
   constructor(gateway) {
@@ -45,6 +46,40 @@ class TwitchBot {
     this.client.on('connected', () => {
       console.log('Twitch Chat Connected (IRC)');
       this.joinSavedChannels();
+    });
+    
+    // --- TMI Message Handler (Fallback for Chat Reading) ---
+    this.client.on('message', (channel, tags, message, self) => {
+        if (self) return; // Ignore self
+        
+        // Map TMI tags to EventSub structure for seamless compatibility
+        const eventData = {
+            broadcaster_user_id: tags['room-id'],
+            broadcaster_user_login: channel.replace('#', ''),
+            broadcaster_user_name: channel.replace('#', ''), // Approximation, TMI doesn't give display name of channel easily in msg
+            chatter_user_id: tags['user-id'],
+            chatter_user_login: tags['username'],
+            chatter_user_name: tags['display-name'],
+            message_id: tags['id'],
+            message: {
+                text: message,
+                fragments: [] // Fragments parsing omitted for brevity, text is primary
+            },
+            color: tags['color'] || '',
+            badges: Object.entries(tags['badges'] || {}).map(([set_id, id]) => ({ set_id, id, info: '' })),
+            message_type: 'text',
+            channel_points_custom_reward_id: tags['custom-reward-id'] || null
+        };
+        
+        // Broadcast as if it was an EventSub 'channel.chat.message' event
+        if (this.gateway) {
+            this.gateway.broadcast('channel.chat.message', {
+                type: 'channel.chat.message',
+                timestamp: new Date().toISOString(),
+                event: eventData,
+                subscription: { type: 'channel.chat.message', status: 'simulated_via_irc' }
+            });
+        }
     });
 
     await this.client.connect().catch(console.error);
@@ -266,14 +301,10 @@ class TwitchBot {
       { type: 'channel.shared_chat.begin', version: '1' },
       { type: 'channel.shared_chat.update', version: '1' },
       { type: 'channel.shared_chat.end', version: '1' },
-      // FULL Chat via EventSub
-      { 
-          type: 'channel.chat.message', 
-          version: '1', 
-          // Condition includes user_id (the bot) because the bot is the one reading the chat
-          extraCondition: { user_id: botId },
-          authType: 'user' // Flag to use User Token
-      }
+      
+      // REMOVED: channel.chat.message
+      // Reason: Webhooks do not support this subscription type easily (requires App Token but User Scope conflicts).
+      // We now handle chat reading via TMI.js (IRC) in the initialize() method.
     ];
 
     const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
@@ -290,13 +321,6 @@ class TwitchBot {
             condition.moderator_user_id = streamerToken.twitchId;
         }
         if (def.extraCondition) {
-            if (!def.extraCondition.user_id) {
-                // If user_id is missing (no bot logged in), skip chat subscription
-                if (def.type === 'channel.chat.message') {
-                    console.warn(`Skipping ${def.type} for ${streamerToken.login}: No Bot ID available.`);
-                    continue;
-                }
-            }
             Object.assign(condition, def.extraCondition);
         }
 
@@ -370,7 +394,7 @@ class TwitchBot {
         }
     }
     
-    // Join chat via TMI for writing
+    // Join chat via TMI for writing AND reading
     if(this.client) {
         this.client.join(streamerToken.login).catch(() => {});
     }
