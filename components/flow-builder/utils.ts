@@ -1,6 +1,7 @@
 
 
 
+
 import { ActionInstance, ActionType } from '../../types';
 import { PLUGINS } from '../../plugins/definitions';
 import { 
@@ -153,30 +154,31 @@ export interface ScopedVariable {
     path: string;
     sourceNodeId?: string;
     category: 'global' | 'node' | 'iterator' | 'system';
+    description?: string; // New field for UI hints
 }
 
 export const calculateScope = (rootNode: ActionInstance, commandStaticVars?: Record<string, string>): Map<string, ScopedVariable[]> => {
     const map = new Map<string, ScopedVariable[]>();
     
-    // Base System Variables
+    // Base System Variables (Always available)
     const baseScope: ScopedVariable[] = [
         // Sender Object
-        { path: 'sender', category: 'system' },
-        { path: 'sender.displayName', category: 'system' },
-        { path: 'sender.id', category: 'system' },
-        { path: 'sender.points', category: 'system' },
-        { path: 'sender.rank', category: 'system' },
-        { path: 'sender.isMod', category: 'system' },
-        { path: 'sender.isBroad', category: 'system' },
-        { path: 'sender.isVip', category: 'system' },
-        { path: 'sender.isSubscriber', category: 'system' },
+        { path: 'sender', category: 'system', description: 'var_sender' },
+        { path: 'sender.displayName', category: 'system', description: 'var_sender_name' },
+        { path: 'sender.id', category: 'system', description: 'var_sender_id' },
+        { path: 'sender.points', category: 'system', description: 'user_tooltip.points' },
+        { path: 'sender.rank', category: 'system', description: 'var_rank' },
+        { path: 'sender.isMod', category: 'system', description: 'var_is_mod' },
+        { path: 'sender.isBroad', category: 'system', description: 'var_is_broad' },
+        { path: 'sender.isVip', category: 'system', description: 'var_is_vip' },
+        { path: 'sender.isSubscriber', category: 'system', description: 'var_is_sub' },
         
         // Args
-        { path: 'args', category: 'system' },
-        { path: 'args.0', category: 'system' },
-        { path: 'args.1', category: 'system' },
-        { path: 'args.length', category: 'system' },
-        { path: 'args.last', category: 'system' },
+        { path: 'args', category: 'system', description: 'var_arg_all' },
+        { path: 'args.0', category: 'system', description: 'var_arg_first' },
+        { path: 'args.1', category: 'system', description: '2nd Argument' },
+        { path: 'args.length', category: 'system', description: 'var_arg_count' },
+        { path: 'args.last', category: 'system', description: 'var_arg_last' },
         
         // Channel
         { path: 'channel', category: 'system' },
@@ -190,25 +192,63 @@ export const calculateScope = (rootNode: ActionInstance, commandStaticVars?: Rec
         { path: 'datetime.date', category: 'system' },
         { path: 'datetime.timestamp', category: 'system' },
         { path: 'datetime.iso', category: 'system' },
-
-        // Events
-        { path: 'event', category: 'system' },
-        { path: 'event.isMessage', category: 'system' },
-        { path: 'event.isFirstMessage', category: 'system' },
-        { path: 'event.isSubscription', category: 'system' },
-        { path: 'event.isRaid', category: 'system' },
-        { path: 'event.isCheer', category: 'system' },
-        { path: 'event.isFollow', category: 'system' },
-        { path: 'event.isJoin', category: 'system' },
-        { path: 'event.isPart', category: 'system' },
-        { path: 'event.isChannelUpdate', category: 'system' }, // NEW
-        { path: 'event.title', category: 'system' }, // NEW
-        { path: 'event.category', category: 'system' } // NEW
     ];
+
+    // --- Dynamic Event Variables based on Start Node Triggers ---
+    if (rootNode.type === ActionType.START && rootNode.settings && rootNode.settings.eventTriggers) {
+        const triggers = rootNode.settings.eventTriggers as string[];
+
+        // Generic Event flags
+        baseScope.push({ path: 'event.isMessage', category: 'system', description: 'var_event_msg' });
+        
+        if (triggers.includes('On First Message')) {
+            baseScope.push({ path: 'event.isFirstMessage', category: 'system', description: 'var_event_first' });
+        }
+
+        if (triggers.includes('On Reward Redemption')) {
+            baseScope.push({ path: 'event.reward', category: 'system', description: 'Reward Object' });
+            baseScope.push({ path: 'event.reward.title', category: 'system', description: 'Reward Title' });
+            baseScope.push({ path: 'event.reward.cost', category: 'system', description: 'Reward Cost' });
+            baseScope.push({ path: 'event.reward.id', category: 'system', description: 'Reward ID' });
+            baseScope.push({ path: 'event.userInput', category: 'system', description: 'Reward Input Text' });
+            baseScope.push({ path: 'event.isReward', category: 'system', description: 'Is Redemption?' });
+        }
+
+        if (triggers.includes('On Channel Update')) {
+            baseScope.push({ path: 'event.title', category: 'system', description: 'Stream Title' });
+            baseScope.push({ path: 'event.category', category: 'system', description: 'Stream Game' });
+            baseScope.push({ path: 'event.language', category: 'system', description: 'Stream Language' });
+            baseScope.push({ path: 'event.isChannelUpdate', category: 'system', description: 'Is Update?' });
+        }
+
+        if (triggers.includes('On Subscription')) {
+            baseScope.push({ path: 'event.sub', category: 'system', description: 'Sub Info' });
+            baseScope.push({ path: 'event.sub.tier', category: 'system', description: 'Sub Tier' });
+            baseScope.push({ path: 'event.sub.months', category: 'system', description: 'Sub Months' });
+            baseScope.push({ path: 'event.sub.isGift', category: 'system', description: 'Is Gift Sub?' });
+            baseScope.push({ path: 'event.isSubscription', category: 'system', description: 'Is Subscription?' });
+        }
+
+        if (triggers.includes('On Raid')) {
+            baseScope.push({ path: 'event.raid', category: 'system', description: 'Raid Info' });
+            baseScope.push({ path: 'event.raid.viewerCount', category: 'system', description: 'Raiders Count' });
+            baseScope.push({ path: 'event.isRaid', category: 'system', description: 'Is Raid?' });
+        }
+
+        if (triggers.includes('On Cheer')) {
+             baseScope.push({ path: 'event.bits', category: 'system', description: 'Bits Amount' });
+             baseScope.push({ path: 'event.isCheer', category: 'system', description: 'Is Cheer?' });
+        }
+
+        if (triggers.includes('On Follow')) {
+            baseScope.push({ path: 'event.followedAt', category: 'system', description: 'Follow Date' });
+            baseScope.push({ path: 'event.isFollow', category: 'system', description: 'Is Follow?' });
+        }
+    }
 
     if (commandStaticVars) {
         Object.keys(commandStaticVars).forEach(k => {
-            baseScope.push({ path: `static.${k}`, category: 'global' });
+            baseScope.push({ path: `static.${k}`, category: 'global', description: 'static_desc' });
         });
     }
 
@@ -237,13 +277,13 @@ export const calculateScope = (rootNode: ActionInstance, commandStaticVars?: Rec
         // Helper to add user object properties
         const addUserExpansion = (rootVar: string, sourceId: string) => {
             const props = ['displayName', 'id', 'points', 'username', 'rank', 'isModerator', 'isVip', 'isSubscriber'];
-            props.forEach(p => produced.push({ path: `${rootVar}.${p}`, sourceNodeId: sourceId, category: 'node' }));
+            props.forEach(p => produced.push({ path: `${rootVar}.${p}`, sourceNodeId: sourceId, category: 'node', description: `User Prop: ${p}` }));
         };
 
         if (settings.resultVar) {
             produced.push({ path: settings.resultVar, sourceNodeId: node.id, category: 'node' });
             if (plugin?.producesCollection) {
-                produced.push({ path: `${settings.resultVar}.length`, sourceNodeId: node.id, category: 'node' });
+                produced.push({ path: `${settings.resultVar}.length`, sourceNodeId: node.id, category: 'node', description: 'List Size' });
             }
             // Check if this resultVar implies a User object (e.g. CHECK_USER, POINTS_GET implied)
             if (node.type === ActionType.CHECK_USER) {
@@ -258,7 +298,7 @@ export const calculateScope = (rootNode: ActionInstance, commandStaticVars?: Rec
         const listVarName = settings.listVar || (node.type === ActionType.WAIT_FOR_KEYWORD ? 'participants' : null);
         if (listVarName) {
             produced.push({ path: listVarName, sourceNodeId: node.id, category: 'node' });
-            produced.push({ path: `${listVarName}.length`, sourceNodeId: node.id, category: 'node' });
+            produced.push({ path: `${listVarName}.length`, sourceNodeId: node.id, category: 'node', description: 'List Count' });
         }
 
         if (node.type === ActionType.SET_VARIABLE && settings.name) {
@@ -293,14 +333,14 @@ export const calculateScope = (rootNode: ActionInstance, commandStaticVars?: Rec
         // Inject Iterator context into children scope
         if (node.type === ActionType.ITERATE) {
             const iterName = settings.varName || 'item';
-            produced.push({ path: iterName, sourceNodeId: node.id, category: 'iterator' });
-            produced.push({ path: 'index', sourceNodeId: node.id, category: 'iterator' });
+            produced.push({ path: iterName, sourceNodeId: node.id, category: 'iterator', description: 'Current Item' });
+            produced.push({ path: 'index', sourceNodeId: node.id, category: 'iterator', description: 'Loop Index' });
             // Expand iterator item properties (assuming user/object)
             addUserExpansion(iterName, node.id);
         }
 
         const nextScope = [...currentScope, ...produced];
-        const errorScope = [...currentScope, { path: 'error_name', sourceNodeId: node.id, category: 'system' } as ScopedVariable];
+        const errorScope = [...currentScope, { path: 'error_name', sourceNodeId: node.id, category: 'system', description: 'var_error' } as ScopedVariable];
 
         // Record Jumps
         if (collectJumps && node.type === ActionType.JUMP && settings.targetId) {

@@ -115,6 +115,7 @@ export class EventSubService {
             }
         };
 
+        // --- CUSTOM REWARD REDEMPTION ---
         if (type === 'channel.channel_points_custom_reward_redemption.add') {
             const rewardTitle = event.reward.title;
             const rewardTitleLower = rewardTitle.toLowerCase();
@@ -156,6 +157,19 @@ export class EventSubService {
                 return titleMatch || eventMatch;
             });
 
+            const eventData = { 
+                isReward: true,
+                reward: {
+                    id: event.reward.id,
+                    title: rewardTitle,
+                    cost: cost,
+                    prompt: event.reward.prompt
+                },
+                userInput: userInput,
+                status: event.status,
+                redeemedAt: event.redeemed_at
+            };
+
             for (const cmd of matchingCommands) {
                 const args = userInput.split(/\s+/);
                 try {
@@ -166,13 +180,14 @@ export class EventSubService {
                         provider: 'twitch',
                         mode: 'server',
                         apiEnabled: !!settings.apiEnabled
-                    }, execId, null, { isReward: true, rewardTitle, rewardCost: cost });
+                    }, execId, null, eventData);
                 } catch (e) {
                     console.error("EventSub Exec Error:", e);
                 }
             }
         }
         
+        // --- AUTOMATIC REWARD REDEMPTION ---
         if (type === 'channel.channel_points_automatic_reward_redemption.add') {
             const rewardType = event.reward.type; 
             const cost = event.reward.cost || 0;
@@ -195,13 +210,34 @@ export class EventSubService {
                     } 
                 }));
             }
+
+            const eventData = {
+                isAutoReward: true,
+                reward: {
+                    type: rewardType,
+                    cost: cost,
+                    emote: event.reward.unlocked_emote
+                },
+                message: {
+                    text: text,
+                    emotes: event.message?.emotes
+                },
+                redeemedAt: event.redeemed_at
+            };
+
+            await runCommand(['On Reward Redemption'], [text], eventData);
         }
 
+        // --- FOLLOW ---
         if (type === 'channel.follow') {
             console.log(`[Gateway] [Follow] ${user.displayName} followed ${broadcasterName}`);
-            await runCommand(['On Follow'], [], { isFollow: true });
+            await runCommand(['On Follow'], [], { 
+                isFollow: true,
+                followedAt: event.followed_at
+            });
         }
 
+        // --- CHAT NOTIFICATION (SUB, RAID, ETC) ---
         if (type === 'channel.chat.notification') {
             const noticeType = event.notice_type;
             const systemMsg = event.system_message;
@@ -239,21 +275,56 @@ export class EventSubService {
             const eventName = triggerMap[noticeType];
             if (eventName) {
                 let args = [];
-                if (event.raid) args.push(String(event.raid.viewer_count));
-                if (event.resub) args.push(String(event.resub.cumulative_months));
-                if (event.sub_gift) args.push(String(event.sub_gift.cumulative_total));
+                let evtData = { isSubscription: false, isRaid: false };
 
-                const evtData = {
-                    isSubscription: eventName === 'On Subscription',
-                    isRaid: eventName === 'On Raid'
-                };
+                if (event.raid) {
+                    args.push(String(event.raid.viewer_count));
+                    evtData.isRaid = true;
+                    evtData.raid = {
+                        viewerCount: event.raid.viewer_count,
+                        profileImage: event.raid.profile_image_url
+                    };
+                }
+                
+                if (event.resub) {
+                    args.push(String(event.resub.cumulative_months));
+                    evtData.isSubscription = true;
+                    evtData.sub = {
+                        tier: event.sub?.sub_tier,
+                        isPrime: event.sub?.is_prime,
+                        months: event.resub.cumulative_months,
+                        streak: event.resub.streak_months,
+                        isGift: false
+                    };
+                } else if (event.sub) {
+                    evtData.isSubscription = true;
+                    evtData.sub = {
+                        tier: event.sub.sub_tier,
+                        isPrime: event.sub.is_prime,
+                        months: 1,
+                        isGift: false
+                    };
+                }
+
+                if (event.sub_gift) {
+                    args.push(String(event.sub_gift.cumulative_total));
+                    evtData.isSubscription = true;
+                    evtData.sub = {
+                        tier: event.sub_gift.sub_tier,
+                        months: event.sub_gift.duration_months,
+                        isGift: true,
+                        recipientId: event.sub_gift.recipient_user_id,
+                        recipientName: event.sub_gift.recipient_user_name
+                    };
+                }
 
                 await runCommand([eventName], args, evtData);
             }
         }
 
+        // --- CHANNEL UPDATE ---
         if (type === 'channel.update') {
-            const { title, category_name, language } = event;
+            const { title, category_name, language, is_mature } = event;
             const ws = userSockets.get(broadcasterId);
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ 
@@ -269,8 +340,19 @@ export class EventSubService {
                 isChannelUpdate: true,
                 title,
                 category: category_name,
-                language
+                language,
+                isMature: is_mature
             });
+        }
+
+        // --- BITS / CHEER ---
+        if (type === 'channel.cheer') {
+             await runCommand(['On Cheer'], [String(event.bits), event.message], {
+                 isCheer: true,
+                 bits: event.bits,
+                 message: event.message,
+                 isAnonymous: event.is_anonymous
+             });
         }
     }
 }

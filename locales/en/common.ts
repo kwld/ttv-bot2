@@ -1,4 +1,6 @@
 
+
+
 export const common = {
   common: {
     cancel: "Cancel",
@@ -95,6 +97,8 @@ export const common = {
     var_arg_last: "Last Argument",
     var_arg_all_text: "All (Joined Text)",
     var_arg_no_last: "All except last",
-    var_arg_tail: "From 2nd to end"
+    var_arg_tail: "From 2nd to end",
+    var_event_msg: "Is Chat Message?",
+    var_event_first: "Is First Message?"
   }
 };

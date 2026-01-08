@@ -1,4 +1,6 @@
 
+
+
 export const common = {
   common: {
     cancel: "Anuluj",
@@ -95,6 +97,8 @@ export const common = {
     var_arg_last: "Ostatni Argument",
     var_arg_all_text: "Wszystkie (Tekst)",
     var_arg_no_last: "Bez ostatniego",
-    var_arg_tail: "Od drugiego do końca"
+    var_arg_tail: "Od drugiego do końca",
+    var_event_msg: "Czy Wiadomość?",
+    var_event_first: "Czy Pierwsza Wiadomość?"
   }
 };
