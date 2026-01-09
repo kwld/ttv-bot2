@@ -668,18 +668,12 @@ const App: React.FC = () => {
           setLoginAuthUrl(`${baseUrl}/auth/twitch?state=${state}`);
           setIsLoginModalOpen(true);
       } else {
-          const defaultCallback = `${window.location.origin}/auth/callback`;
-          const redirect = activeChannel.clientRedirectUri ? activeChannel.clientRedirectUri : defaultCallback;
-          const cid = globalClientId || process.env.TWITCH_CLIENT_ID || '';
-          if (!cid) {
-              setDialogConfig({
-                  isOpen: true, type: 'warning', title: t('dialogs.config_required_title'), message: t('dialogs.config_client_id_msg'), isAlert: true, confirmLabel: 'OK',
-                  onConfirm: () => { setDialogConfig(prev => ({ ...prev, isOpen: false })); setIsChannelConfigModalOpen(true); },
-                  onCancel: () => { setDialogConfig(prev => ({ ...prev, isOpen: false })); setIsChannelConfigModalOpen(true); }
-              });
-              return;
-          }
-          setLoginAuthUrl(getTwitchAuthUrl(cid, redirect));
+          // Unified Flow: Use Server Auth for Client Mode too
+          // This fixes the issue where implicit flow was hitting the server callback
+          const state = generateUUID();
+          const baseUrl = serverUrl.replace(/\/$/, '');
+          // Explicitly request chat scopes via query params if supported by server route (it defaults to chat=true anyway)
+          setLoginAuthUrl(`${baseUrl}/auth/twitch?state=${state}&chat=true&events=false`);
           setIsLoginModalOpen(true);
       }
   }, [serverUrl, globalClientId, t, activeChannel.clientRedirectUri]);
