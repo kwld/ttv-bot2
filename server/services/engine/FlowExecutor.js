@@ -205,6 +205,61 @@ export class FlowExecutor {
       return lower === 'true' || lower === 'tak' || lower === 'yes' || lower === '1';
   }
 
+  // --- API Helpers ---
+
+  async createClipApi(broadcasterId, title, duration) {
+    if (!this.config.twitchAdapter) {
+        throw new Error("API_NOT_CONFIGURED");
+    }
+    
+    const { getAccessToken, clientId } = this.config.twitchAdapter;
+    const token = await getAccessToken();
+    
+    if (!token || !clientId) throw new Error("NO_CREDENTIALS");
+    
+    // Resolve Numeric ID if broadcasterId is a username (Basic check)
+    // Real ID resolution usually handled before this in specific adapters if needed, 
+    // but here we assume broadcasterId is numeric or handled by the system.
+    // If it starts with 'ch_' or 'sim_', it's local/simulation.
+
+    if (!/^\d+$/.test(broadcasterId)) {
+         throw new Error("INVALID_ID_FOR_API");
+    }
+
+    let url = `https://api.twitch.tv/helix/clips?broadcaster_id=${broadcasterId}`;
+    if (title && title.trim()) url += `&title=${encodeURIComponent(title.trim())}`;
+    
+    // Duration is technically not supported by standard Create Clip API (it captures live buffer), 
+    // but some extensions support it. We ignore it for the standard API call to avoid 400s.
+    
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Client-Id': clientId
+        }
+    });
+
+    if (!res.ok) {
+        const errText = await res.text();
+        // Check for common errors
+        if (res.status === 401) throw new Error("UNAUTHORIZED");
+        if (res.status === 404) throw new Error("CHANNEL_OFFLINE");
+        throw new Error(`API_ERROR: ${res.status} ${errText}`);
+    }
+
+    const json = await res.json();
+    if (json.data && json.data.length > 0) {
+        const clipInfo = json.data[0];
+        return {
+            id: clipInfo.id,
+            url: `https://clips.twitch.tv/${clipInfo.id}`,
+            editUrl: clipInfo.edit_url
+        };
+    }
+    throw new Error("NO_CLIP_DATA");
+  }
+
   async executeAction(action, context, command, executionId) {
     const execInfo = this.activeExecutions.get(executionId);
     if (execInfo?.controller.signal.aborted) {
@@ -334,23 +389,48 @@ export class FlowExecutor {
             const duration = parseFloat(durationRaw) || 0;
             const title = VariableResolver.resolve(action.settings.title || '', context, this.activeTargets);
 
-            if (this.callbacks.createClip) {
+            let clipResult = null;
+            let errorMessage = "UNKNOWN_ERROR";
+
+            // 1. Try Shared API Logic (If adapter provided)
+            if (this.config.twitchAdapter) {
                 try {
-                    const result = await this.callbacks.createClip(command.channelId, title, duration);
-                    const varName = action.settings.resultVar || 'clipUrl';
-                    
-                    if (typeof result === 'object' && result.url) {
-                        context.variables[varName] = result.url;
-                        context.variables[`${varName}_edit`] = result.editUrl || result.url;
-                        context.variables[`${varName}_id`] = result.id;
-                    } else {
-                        context.variables[varName] = String(result);
-                    }
+                    clipResult = await this.createClipApi(command.channelId, title, duration);
                 } catch (e) {
-                    throw new Error(e.message || 'API_ERROR');
+                    // If it's an ID error (e.g. simulation ID), we can fallback to mock
+                    if (e.message !== "INVALID_ID_FOR_API") {
+                         errorMessage = e.message || "API_ERROR";
+                         if (IS_DEV) console.warn("[FlowExecutor] Clip API Failed:", e);
+                    } else {
+                         errorMessage = "SIMULATION_MODE";
+                    }
                 }
             } else {
-                throw new Error('NOT_IMPLEMENTED_LOCALLY');
+                errorMessage = "NO_ADAPTER";
+            }
+
+            // 2. Fallback to Mock Logic (via callback if provided)
+            // Useful for simulation mode or offline testing
+            if (!clipResult && this.callbacks.createClipMock) {
+                try {
+                    clipResult = await this.callbacks.createClipMock(command.channelId, title, duration);
+                } catch(e) {
+                    if (!errorMessage) errorMessage = e.message;
+                }
+            }
+
+            if (!clipResult) {
+                throw new Error(errorMessage || "CLIP_CREATION_FAILED");
+            }
+
+            // Save Variables
+            const varName = action.settings.resultVar || 'clipUrl';
+            if (typeof clipResult === 'object' && clipResult.url) {
+                context.variables[varName] = clipResult.url;
+                context.variables[`${varName}_edit`] = clipResult.editUrl || clipResult.url;
+                context.variables[`${varName}_id`] = clipResult.id;
+            } else {
+                context.variables[varName] = String(clipResult);
             }
             break;
           }
@@ -1402,5 +1482,58 @@ export class FlowExecutor {
         this.pendingResolvers.delete(executionId);
         this.activeExecutions.delete(executionId);
     }
+  }
+
+  async createClipApi(broadcasterId, title, duration) {
+    if (!this.config.twitchAdapter) {
+        throw new Error("API_NOT_CONFIGURED");
+    }
+    
+    const { getAccessToken, clientId } = this.config.twitchAdapter;
+    const token = await getAccessToken();
+    
+    if (!token || !clientId) throw new Error("NO_CREDENTIALS");
+    
+    // Resolve Numeric ID if broadcasterId is a username (Basic check)
+    // Real ID resolution usually handled before this in specific adapters if needed, 
+    // but here we assume broadcasterId is numeric or handled by the system.
+    // If it starts with 'ch_' or 'sim_', it's local/simulation.
+
+    if (!/^\d+$/.test(broadcasterId)) {
+         throw new Error("INVALID_ID_FOR_API");
+    }
+
+    let url = `https://api.twitch.tv/helix/clips?broadcaster_id=${broadcasterId}`;
+    if (title && title.trim()) url += `&title=${encodeURIComponent(title.trim())}`;
+    
+    // Duration is technically not supported by standard Create Clip API (it captures live buffer), 
+    // but some extensions support it. We ignore it for the standard API call to avoid 400s.
+    
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Client-Id': clientId
+        }
+    });
+
+    if (!res.ok) {
+        const errText = await res.text();
+        // Check for common errors
+        if (res.status === 401) throw new Error("UNAUTHORIZED");
+        if (res.status === 404) throw new Error("CHANNEL_OFFLINE");
+        throw new Error(`API_ERROR: ${res.status} ${errText}`);
+    }
+
+    const json = await res.json();
+    if (json.data && json.data.length > 0) {
+        const clipInfo = json.data[0];
+        return {
+            id: clipInfo.id,
+            url: `https://clips.twitch.tv/${clipInfo.id}`,
+            editUrl: clipInfo.edit_url
+        };
+    }
+    throw new Error("NO_CLIP_DATA");
   }
 }

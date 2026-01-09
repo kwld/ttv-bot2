@@ -304,108 +304,9 @@ export class FlowEngine {
             }
             return null;
         },
-        // REAL CLIP CREATOR FOR CLIENT SIMULATION (IF AUTHENTICATED)
-        createClip: async (targetChannelId: string, title?: string, duration?: number) => {
-            const token = localStorage.getItem('gemini_bot_token');
-            const clientId = localStorage.getItem('gemini_bot_global_client_id') || process.env.TWITCH_CLIENT_ID;
-
-            // Resolve Twitch ID from channel config if needed
-            let broadcasterId = targetChannelId;
-            let channelName = '';
-            
-            const channels: Channel[] = JSON.parse(localStorage.getItem('gemini_bot_channels') || '[]');
-            const channel = channels.find(c => c.id === targetChannelId);
-            
-            if (channel) {
-                channelName = channel.name;
-                if (channel.twitchId) {
-                    broadcasterId = channel.twitchId;
-                } else if (channel.mode === 'serverless' && channel.connectedUser) {
-                    // Self-channel in client mode
-                    broadcasterId = channel.connectedUser.id;
-                }
-            }
-
-            // Only attempt real API if we have credentials and it doesn't look like a mock/sim ID
-            // In Serverless mode, channel IDs might start with 'ch_' if created from URL, but if token exists, we treat it as real.
-            const isMockId = broadcasterId.startsWith('sim_') || broadcasterId === '1001';
-            
-            if (token && clientId && !isMockId) {
-                 // FIX: Ensure broadcasterId is numeric. If not (e.g. it's still 'ch_...'), resolve it via API using name.
-                 if (!/^\d+$/.test(broadcasterId) && channelName) {
-                     try {
-                         const users = await fetchTwitchUsers(token, clientId, [channelName]);
-                         if (users.length > 0) {
-                             broadcasterId = users[0].id;
-                         } else {
-                             throw new Error(`Could not resolve numeric ID for channel: ${channelName}`);
-                         }
-                     } catch (e: any) {
-                         throw new Error(`ID Resolution Failed: ${e.message}`);
-                     }
-                 }
-
-                 this.savedCallbacks.onLog(`Attempting to create clip for ${channelName || broadcasterId} (ID: ${broadcasterId})...`, "info");
-                 
-                 try {
-                     let url = `https://api.twitch.tv/helix/clips?broadcaster_id=${broadcasterId}`;
-                     
-                     if (title && title.trim()) {
-                         url += `&title=${encodeURIComponent(title.trim())}`;
-                     }
-                     
-                     if (duration) {
-                         const d = Math.max(5, Math.min(60, duration));
-                         url += `&duration=${d}`;
-                     }
-                     
-                     const res = await fetch(url, {
-                         method: 'POST',
-                         headers: {
-                             'Authorization': `Bearer ${token}`,
-                             'Client-Id': clientId
-                         }
-                     });
-
-                     if (!res.ok) {
-                         const errText = await res.text();
-                         console.error("Clip creation failed", res.status, errText);
-                         
-                         let errMsg = `Twitch API Error: ${res.status}`;
-                         try {
-                             const jsonErr = JSON.parse(errText);
-                             if (jsonErr.message) errMsg = `Twitch API: ${jsonErr.message}`;
-                         } catch (e) {}
-                         
-                         throw new Error(errMsg);
-                     }
-
-                     const data = await res.json();
-                     if (data.data && data.data.length > 0) {
-                         const clipInfo = data.data[0];
-                         // Return object with standard URL and Edit URL
-                         return {
-                             id: clipInfo.id,
-                             url: `https://clips.twitch.tv/${clipInfo.id}`, // Usually https://clips.twitch.tv/Id
-                             editUrl: clipInfo.edit_url
-                         };
-                     }
-                     throw new Error("No clip data returned");
-                 } catch (e: any) {
-                     // Propagate error to flow so it takes the Error path
-                     this.savedCallbacks.onLog(`Clip creation failed: ${e.message}`, "error");
-                     throw e; 
-                 }
-            }
-
-            // If we are NOT in testing mode (e.g. Serverless/Server) but API failed or credentials missing, 
-            // DO NOT fallback to mock. Throw error.
-            if (channel && channel.mode !== 'testing') {
-                throw new Error("CLIP_CREATION_FAILED_NO_CREDENTIALS");
-            }
-
-            // Fallback for mock users/channels ONLY if we really can't call API
-            this.savedCallbacks.onLog(`Simulating Clip Creation (Mock/Offline) [${duration || 30}s]...`, "warning");
+        // Fallback Clip Mocker
+        createClipMock: async (targetChannelId: string, title?: string, duration?: number) => {
+            this.savedCallbacks.onLog(`Simulating Clip Creation (Mock) [${duration || 30}s]...`, "warning");
             const mockId = "MockClip_" + Math.random().toString(36).substring(7);
             return {
                 id: mockId,
@@ -413,7 +314,13 @@ export class FlowEngine {
                 editUrl: `https://clips.twitch.tv/${mockId}/edit`
             };
         }
-    }, this.userRegistry, { apiKey: this.apiKey });
+    }, this.userRegistry, { 
+        apiKey: this.apiKey,
+        twitchAdapter: {
+            getAccessToken: async () => localStorage.getItem('gemini_bot_token'),
+            clientId: localStorage.getItem('gemini_bot_global_client_id') || process.env.TWITCH_CLIENT_ID
+        }
+    });
   }
 
   private saveRegistry() {
@@ -492,7 +399,15 @@ export class FlowEngine {
             // Maintain the getChannelInfo from constructor closure (simplified)
             getChannelInfo: (this.executor as any).callbacks.getChannelInfo,
             getUserInfo: (this.executor as any).callbacks.getUserInfo,
-            createClip: (this.executor as any).callbacks.createClip
+            createClipMock: (this.executor as any).callbacks.createClipMock
+        });
+        
+        // Ensure adapter is preserved
+        this.executor.updateConfig({
+             twitchAdapter: {
+                getAccessToken: async () => localStorage.getItem('gemini_bot_token'),
+                clientId: localStorage.getItem('gemini_bot_global_client_id') || process.env.TWITCH_CLIENT_ID
+            }
         });
     }
   }

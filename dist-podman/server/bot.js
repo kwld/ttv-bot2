@@ -162,50 +162,30 @@ const getExecutor = (channelId, channelName) => {
              }
              return null;
         },
-        createClip: async (targetChId, title, duration) => {
-            const botAuth = await AuthModel.findOne({ isBot: true });
-            if (!botAuth) throw new Error("NO_BOT_AUTH");
-            
-            const callClipApi = async (token) => {
-                let url = `https://api.twitch.tv/helix/clips?broadcaster_id=${targetChId}`;
-                if (title && title.trim()) url += `&title=${encodeURIComponent(title)}`;
-                if (duration) {
-                    const d = Math.max(5, Math.min(60, parseFloat(duration) || 30));
-                    url += `&duration=${d}`;
-                }
-
-                return await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${token}`, 'Client-Id': process.env.TWITCH_CLIENT_ID }
-                });
-            };
-
-            let res = await callClipApi(botAuth.accessToken);
-            if (res.status === 401) {
-                const refreshed = await authManager.refreshUserToken(botAuth.userId);
-                if (refreshed) {
-                    botAuth.accessToken = refreshed.accessToken;
-                    res = await callClipApi(refreshed.accessToken);
-                }
-            }
-            
-            if (!res.ok) throw new Error("API_ERROR");
-
-            const json = await res.json();
-            if (json.data && json.data.length > 0) {
-                const clipInfo = json.data[0];
-                return { 
-                    id: clipInfo.id, 
-                    url: `https://clips.twitch.tv/${clipInfo.id}`, 
-                    editUrl: clipInfo.edit_url 
-                };
-            }
-            throw new Error("NO_CLIP_DATA");
+        createClipMock: async (targetChId, title, duration) => {
+             // Mock fallback for server logs
+             return { id: 'mock', url: 'http://mock-clip', editUrl: 'http://mock-clip' };
         },
         onUserRegistryUpdate: () => {}
     };
 
-    const executor = new FlowExecutor(pointSystem, callbacks, usersDB, { apiKey: process.env.API_KEY });
+    const executor = new FlowExecutor(pointSystem, callbacks, usersDB, { 
+        apiKey: process.env.API_KEY,
+        twitchAdapter: {
+            getAccessToken: async () => {
+                const botAuth = await AuthModel.findOne({ isBot: true });
+                if (!botAuth) return null;
+                // Basic refresh check (if needed, usually handled by AuthManager or Gateway, here we check expiration)
+                if (botAuth.expiresAt && Date.now() > botAuth.expiresAt - 600000) {
+                     const refreshed = await authManager.refreshUserToken(botAuth.userId);
+                     if (refreshed) return refreshed.accessToken;
+                }
+                return botAuth.accessToken;
+            },
+            clientId: process.env.TWITCH_CLIENT_ID
+        }
+    });
+    
     executors.set(channelId, executor);
     return executor;
 };

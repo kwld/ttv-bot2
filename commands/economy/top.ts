@@ -6,7 +6,7 @@ category: Economy
 version: '2.3'
 provider: twitch
 channelId: sim_1
-enabled: true
+enabled: false
 testAsUser: false
 allowedRanks:
   - regular
