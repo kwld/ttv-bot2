@@ -451,6 +451,72 @@ const FlowNode: React.FC<FlowNodeProps> = ({
                 )}
             </div>
           )})}
+
+          {isStartNode && commandStaticDefinitions && Object.keys(commandStaticDefinitions).length > 0 && (
+            <div className="mt-2 pt-2 border-t border-slate-700/50 flex flex-col gap-3">
+               <div className="flex items-center justify-between">
+                   <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{t('config_editor.section_constants')}</span>
+                   <i className="fas fa-sliders-h text-slate-600 text-[10px]"></i>
+               </div>
+               {Object.values(commandStaticDefinitions).map((def) => {
+                   const val = commandStaticVars?.[def.key] ?? '';
+                   
+                   if (def.type === 'slider') {
+                       return (
+                           <div key={def.key}>
+                               <div className="flex justify-between items-center mb-1.5">
+                                   <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">{def.label || def.key}</label>
+                                   <span className="text-[9px] font-mono text-indigo-300">{val}</span>
+                               </div>
+                               <input 
+                                  type="range"
+                                  min={def.min ?? 0}
+                                  max={def.max ?? 100}
+                                  step={def.step ?? 1}
+                                  value={val}
+                                  onChange={(e) => onStaticVarUpdate && onStaticVarUpdate(def.key, e.target.value)}
+                                  className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                                  disabled={isReadOnly}
+                               />
+                           </div>
+                       );
+                   }
+                   if (def.type === 'select') {
+                       return (
+                           <div key={def.key}>
+                               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 tracking-wider">{def.label || def.key}</label>
+                               <select
+                                   value={val}
+                                   onChange={(e) => onStaticVarUpdate && onStaticVarUpdate(def.key, e.target.value)}
+                                   disabled={isReadOnly}
+                                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors"
+                               >
+                                   {(def.options || []).map(opt => (
+                                       <option key={opt} value={opt}>{opt}</option>
+                                   ))}
+                               </select>
+                           </div>
+                       );
+                   }
+                   
+                   // Fallback for number/text types
+                   return (
+                       <div key={def.key}>
+                            <VariableInput 
+                                label={def.label || def.key} 
+                                value={val} 
+                                onChange={(v) => onStaticVarUpdate && onStaticVarUpdate(def.key, v)} 
+                                placeholder={def.min !== undefined ? String(def.min) : t('misc.value_placeholder')}
+                                type={def.type === 'number' ? 'number' : 'text'}
+                                availableVariables={scope} 
+                                onHoverNode={onHighlightNode}
+                            />
+                       </div>
+                   );
+               })}
+            </div>
+          )}
+
           {showContextWarning && (
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-2 flex items-start gap-2">
                   <i className="fas fa-exclamation-triangle text-amber-500 text-[10px] mt-0.5"></i>
