@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'react';
 import { Command, ChatMessage, User, ActionType, Provider, Channel, UserEntity, BadgeStyle, TextStyle, WaitingInfo, RepoCommand } from './types';
 import { TwitchChatClient, fetchTwitchUserProfile, getTwitchAuthUrl, fetchTwitchBadges, fetchTwitchUsers } from './services/twitchService';
@@ -462,14 +461,19 @@ const App: React.FC = () => {
 
       // --- PRIORITY SEND VIA LOCAL CLIENT ---
       // If the local TMI client is connected, use it to send the message.
-      // This is faster and ensures the streamer's message appears as "themself" on Twitch.
-      // The Gateway will then pick up this message via IRC/EventSub and send it back to the Server
-      // for command processing.
       if (twitchClientRef.current && twitchClientRef.current.isConnected && targetChannel.provider === 'twitch' && targetChannel.mode !== 'testing') {
            twitchClientRef.current.say(targetChannel.name, text, replyTo ? { replyToId: replyTo.id } : {});
-           // We don't add to local messages manually here for Server mode, because the Server Bridge or Local Echo will handle it.
-           // However, for immediate UI feedback in Server Mode, we can add it temporarily if needed, 
-           // but the best practice is waiting for the echo to prevent duplication.
+           
+           // FIX: Inject local message for Client Mode (Serverless) to ensure visibility
+           // Server Mode handles this via Gateway echo, so we skip it there.
+           if (targetChannel.mode === 'serverless') {
+                setMessages(prev => {
+                    // Check if message ID already exists (unlikely for new UUID, but good practice)
+                    if (prev.some(m => m.id === chatMsg.id)) return prev;
+                    return [...prev.slice(-49), chatMsg];
+                });
+                handleIncomingMessage({ ...chatMsg, message: text, isLogicOnly: true });
+           }
       } 
       else if (targetChannel.mode === 'server') {
           // If local client is NOT connected but we are in server mode, send via bridge.
@@ -485,11 +489,6 @@ const App: React.FC = () => {
           if (targetChannel.mode === 'testing') {
               if (localEngineRef.current) {
                   localEngineRef.current.registerUser(user);
-                  handleIncomingMessage({ ...chatMsg, message: text, isLogicOnly: true });
-              }
-          } else {
-              // Should be covered by the first if block, but fallback here
-              if (targetChannel.mode === 'serverless') {
                   handleIncomingMessage({ ...chatMsg, message: text, isLogicOnly: true });
               }
           }

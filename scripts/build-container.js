@@ -174,6 +174,7 @@ services:
       - TWITCH_CLIENT_SECRET=\${TWITCH_CLIENT_SECRET}
       - TWITCH_WEBHOOK_SECRET=\${TWITCH_WEBHOOK_SECRET}
       # URL Configuration
+      - APP_PUBLIC_URL=\${APP_PUBLIC_URL}
       - BASE_URL=\${APP_PUBLIC_URL}
       - GATEWAY_PUBLIC_URL=\${GATEWAY_PUBLIC_URL}
       # Auth
@@ -272,7 +273,7 @@ APP_PUBLIC_URL=http://localhost:3001
 GATEWAY_PUBLIC_URL=https://your-public-gateway-url.com
 
 # OAuth Redirect URI
-# The full URL where Twitch will redirect users after login.
+# The full URL where Twitch will redirect users after authentication.
 # Typically: \${APP_PUBLIC_URL}/auth/callback
 REDIRECT_URI=http://localhost:3001/auth/callback
 

@@ -134,7 +134,7 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/twitch-gate
 // --- API Config ---
 app.get('/api/config', (req, res) => {
     res.json({
-        appUrl: process.env.BASE_URL || 'http://localhost:3001',
+        appUrl: process.env.APP_PUBLIC_URL || process.env.BASE_URL || 'http://localhost:3001',
         gatewayUrl: process.env.GATEWAY_PUBLIC_URL || `http://${req.headers.host}`
     });
 });

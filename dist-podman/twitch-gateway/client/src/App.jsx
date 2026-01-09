@@ -282,7 +282,7 @@ const StreamerDashboard = ({ logout }) => {
                                 ))}
                                 {grantedScopes.length === 0 && <span className="text-xs text-gray-500 italic">Basic access only</span>}
                              </div>
-
+                             
                              <div className="flex flex-col gap-2">
                                 <button 
                                     onClick={handleManageFeatures}

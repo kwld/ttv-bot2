@@ -53,6 +53,10 @@ export class FlowExecutor {
     this.activeExecutions = new Map();
     this.config = config;
     this.processManager = new ProcessManager(); // Access Singleton
+    
+    // Tracks command usage timestamps for cooldowns
+    // Key: commandId, Value: { globalLast: number, userLast: Map<userId, number> }
+    this.commandStates = new Map();
   }
 
   updateCallbacks(newCallbacks) {
@@ -586,7 +590,7 @@ export class FlowExecutor {
              break;
           }
           case ActionType.WAIT: {
-            const durationRaw = VariableResolver.resolve(String(action.settings.duration || '1'), context, this.activeTargets);
+            const durationRaw = VariableResolver.resolve(action.settings.duration || '1', context, this.activeTargets);
             const duration = parseFloat(durationRaw) || 0;
             if (duration > 0) {
               const startTime = Date.now();
@@ -1159,6 +1163,77 @@ export class FlowExecutor {
   async run(command, sender, extras, args, channel, executionId, errorState, eventData = {}, systemVariables = {}) {
     const userEntity = { ...sender }; 
     this.registerUser(userEntity);
+    
+    // --- COOLDOWN CHECK ---
+    const now = Date.now();
+    const cmdState = this.commandStates.get(command.id) || { globalLast: 0, userLast: new Map() };
+
+    // Check Global Cooldown
+    const globalCdMs = (command.globalCooldown || 0) * 1000;
+    if (globalCdMs > 0 && (now - cmdState.globalLast) < globalCdMs) {
+         const remaining = Math.ceil((globalCdMs - (now - cmdState.globalLast)) / 1000);
+         this.callbacks.onNodeStatusUpdate(command.rootAction.id, 'error', 'Global Cooldown');
+         
+         // Trigger error path for Cooldown if defined
+         if (command.rootAction.errorChildren && command.rootAction.errorChildren.length > 0) {
+             // We need context to run error children, so we initialize it early for this specific failure case.
+             // (Code duplication is minimal to keep main path clean)
+             // Using minimal context for cooldown error flow
+             const cooldownContext = {
+                 sender,
+                 args,
+                 channel,
+                 variables: { error_name: 'GLOBAL_COOLDOWN', cooldown_remaining: remaining },
+                 nodeMap: new Map(), // Will need to index nodes for error children
+                 nodeLastRun: new Map()
+             };
+             // Index just for error children recursively
+             const subMap = new Map();
+             command.rootAction.errorChildren.forEach(c => this.indexNodes(c, subMap));
+             cooldownContext.nodeMap = subMap;
+
+             // Run error children
+             await Promise.all(command.rootAction.errorChildren.map(errChild => 
+                 this.executeAction(errChild, cooldownContext, command, executionId)
+             ));
+         }
+         return; // STOP EXECUTION
+    }
+
+    // Check User Cooldown
+    const userCdMs = (command.userCooldown || 0) * 1000;
+    const lastUserTime = cmdState.userLast.get(sender.id) || 0;
+    if (userCdMs > 0 && (now - lastUserTime) < userCdMs) {
+         const remaining = Math.ceil((userCdMs - (now - lastUserTime)) / 1000);
+         this.callbacks.onNodeStatusUpdate(command.rootAction.id, 'error', 'User Cooldown');
+         
+         if (command.rootAction.errorChildren && command.rootAction.errorChildren.length > 0) {
+             const cooldownContext = {
+                 sender,
+                 args,
+                 channel,
+                 variables: { error_name: 'USER_COOLDOWN', cooldown_remaining: remaining },
+                 nodeMap: new Map(),
+                 nodeLastRun: new Map()
+             };
+             const subMap = new Map();
+             command.rootAction.errorChildren.forEach(c => this.indexNodes(c, subMap));
+             cooldownContext.nodeMap = subMap;
+             
+             await Promise.all(command.rootAction.errorChildren.map(errChild => 
+                 this.executeAction(errChild, cooldownContext, command, executionId)
+             ));
+         }
+         return; // STOP EXECUTION
+    }
+
+    // UPDATE COOLDOWNS (Optimistic - assume run starts)
+    cmdState.globalLast = now;
+    cmdState.userLast.set(sender.id, now);
+    this.commandStates.set(command.id, cmdState);
+    
+    // ----------------------
+
     const nodeMap = new Map();
     this.indexNodes(command.rootAction, nodeMap);
 
@@ -1187,12 +1262,12 @@ export class FlowExecutor {
     }
 
     // Prepare Date Object
-    const now = new Date();
+    const nowObj = new Date();
     const dt = {
-        time: now.toLocaleTimeString(),
-        date: now.toLocaleDateString(),
-        iso: now.toISOString(),
-        timestamp: now.getTime()
+        time: nowObj.toLocaleTimeString(),
+        date: nowObj.toLocaleDateString(),
+        iso: nowObj.toISOString(),
+        timestamp: nowObj.getTime()
     };
 
     const context = {
