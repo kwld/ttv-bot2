@@ -606,7 +606,7 @@ router.get('/api/config', (req, res) => {
     const proto = req.headers['x-forwarded-proto'] || 'http';
     const host = req.headers.host;
     res.json({ 
-        apiUrl: process.env.BASE_URL || `${proto}://${host}`,
+        apiUrl: process.env.APP_PUBLIC_URL || process.env.BASE_URL || `${proto}://${host}`,
         gatewayUrl: process.env.GATEWAY_PUBLIC_URL || 'http://localhost:3000'
     });
 });

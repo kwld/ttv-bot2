@@ -47,24 +47,32 @@ const ServerStatusPanel: React.FC<ServerStatusPanelProps> = ({
   const [gatewayUrl, setGatewayUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    setTempUrl(serverUrl);
+    // Only update tempUrl if not editing or if we just opened
+    if (!isConfigOpen) {
+        setTempUrl(serverUrl);
+    }
     setTempClientId(globalClientId);
     setTempGeminiKey(geminiApiKey);
   }, [serverUrl, globalClientId, geminiApiKey, isConfigOpen]);
 
-  // Fetch Gateway URL from Server Config
+  // Fetch Gateway URL and Config from Server
   useEffect(() => {
-      if (isConnected) {
+      if (isConnected && isConfigOpen) {
           fetch(`${serverUrl}/api/config`)
               .then(res => res.json())
               .then(data => {
                   if (data.gatewayUrl) {
                       setGatewayUrl(data.gatewayUrl);
                   }
+                  // If the server reports a canonical URL, update the input field if the user hasn't changed it manually
+                  // This helps if the local storage has localhost but the server knows its real public URL
+                  if (data.apiUrl && tempUrl === serverUrl) {
+                      setTempUrl(data.apiUrl);
+                  }
               })
               .catch(() => {});
       }
-  }, [isConnected, serverUrl]);
+  }, [isConnected, serverUrl, isConfigOpen]);
 
   const handleSaveConfig = (e: React.FormEvent) => {
     e.preventDefault();

@@ -6,7 +6,15 @@ import { MOCK_USERS } from '../mockUsers';
 
 export const useAppAuth = (activeChannelMode: string) => {
   const [botToken, setBotToken] = useState<string | null>(() => localStorage.getItem('gemini_bot_token'));
-  const [serverUrl, setServerUrl] = useState(() => localStorage.getItem('GEMINI_SERVER_URL') || 'http://localhost:3001');
+  const [serverUrl, setServerUrl] = useState(() => {
+      const stored = localStorage.getItem('GEMINI_SERVER_URL');
+      if (stored) return stored;
+      // In production (served from same origin), default to origin if not localhost dev
+      if (typeof window !== 'undefined' && !window.location.host.includes('localhost:5173')) {
+          return window.location.origin;
+      }
+      return 'http://localhost:3001';
+  });
   const [serverToken, setServerToken] = useState(() => localStorage.getItem('gemini_server_token'));
   const [globalClientId, setGlobalClientId] = useState(() => localStorage.getItem('gemini_bot_global_client_id') || '');
   const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('gemini_bot_gemini_api_key') || '');
@@ -20,7 +28,12 @@ export const useAppAuth = (activeChannelMode: string) => {
   // Persist Global Settings
   useEffect(() => { localStorage.setItem('gemini_bot_global_client_id', globalClientId); }, [globalClientId]);
   useEffect(() => { localStorage.setItem('gemini_bot_gemini_api_key', geminiApiKey); }, [geminiApiKey]);
-  useEffect(() => { localStorage.setItem('GEMINI_SERVER_URL', serverUrl); }, [serverUrl]);
+  
+  useEffect(() => { 
+      if (serverUrl && serverUrl !== 'undefined' && serverUrl !== 'null') {
+          localStorage.setItem('GEMINI_SERVER_URL', serverUrl); 
+      }
+  }, [serverUrl]);
 
   // Auth Hash Parser
   useEffect(() => {
