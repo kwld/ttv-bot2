@@ -182,13 +182,21 @@ export class TwitchIRCClient {
         if (this.isConnected && this.ws && this.ws.readyState === 1) {
             const target = channelName.toLowerCase().replace('#', '');
             
+            // --- SECURITY: Anti-Command Injection ---
+            // Prevent bot from executing IRC commands like /ban, /timeout, .delete
+            // We prepend a space if the message starts with control characters.
+            let secureMessage = message;
+            if (secureMessage.startsWith('/') || secureMessage.startsWith('.')) {
+                secureMessage = ' ' + secureMessage;
+            }
+
             // --- Auto-Deduplication Logic ---
-            let finalMessage = message;
+            let finalMessage = secureMessage;
             const lastEntry = this.lastSentMessages.get(target);
 
-            if (lastEntry && lastEntry.cleanText === message) {
+            if (lastEntry && lastEntry.cleanText === secureMessage) {
                 if (!lastEntry.modified) {
-                    finalMessage = message + ' \u{E0000}'; // Tag Space (Invisible)
+                    finalMessage = secureMessage + ' \u{E0000}'; // Tag Space (Invisible)
                 }
             }
 
@@ -201,8 +209,8 @@ export class TwitchIRCClient {
             
             // Update tracker
             this.lastSentMessages.set(target, { 
-                cleanText: message, 
-                modified: finalMessage !== message 
+                cleanText: secureMessage, 
+                modified: finalMessage !== secureMessage 
             });
         }
     }

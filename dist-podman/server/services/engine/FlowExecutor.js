@@ -364,6 +364,13 @@ export class FlowExecutor {
         switch (action.type) {
           case ActionType.SAY: {
             let msg = VariableResolver.resolve(action.settings.message || '', context, this.activeTargets);
+            
+            // Security: Prevent IRC Command Injection (e.g. /ban, /timeout)
+            // Even if AI generates it, we disable it by prepending a space.
+            if (msg.startsWith('/') || msg.startsWith('.')) {
+                msg = ' ' + msg;
+            }
+            
             if (msg.startsWith('/') || msg.startsWith('.')) {
                 msg = ' ' + msg;
             }
