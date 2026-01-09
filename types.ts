@@ -1,4 +1,5 @@
 
+
 export enum ActionType {
   START = 'START',
   SAY = 'SAY',
@@ -218,6 +219,9 @@ export interface RepoCommand {
     createdAt: number;
     updatedAt?: number; // Last updated timestamp
     commandData?: Command; // Filled only on import/detail view
+    
+    // Fork tracking
+    parentRepoCommandId?: string; 
     
     // Access Control
     visibility: 'PUBLIC' | 'PRIVATE';

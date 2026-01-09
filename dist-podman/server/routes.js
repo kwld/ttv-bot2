@@ -127,6 +127,18 @@ router.post('/api/repo/share', requireAuth, async (req, res) => {
         const isLocalChannel = originChannelId.startsWith('ch_') || originChannelId.startsWith('sim_');
         let originTag = isLocalChannel ? 'Local' : 'Server';
         
+        // --- DATA SANITIZATION ---
+        // Create a clean copy of command data to store in repo
+        // 1. Remove instance-specific IDs
+        const { id: _ignoreId, channelId: _ignoreChannelId, ...cleanCommandData } = command;
+        
+        // 2. Ensure sensitive fields are stripped just in case
+        delete cleanCommandData.id;
+        delete cleanCommandData.channelId;
+        delete cleanCommandData.enabled; // Don't enforce enabled state on import
+        
+        // The repo logic will attach 'repoId' later.
+        
         let auditResult;
         
         if (skipAi) {
@@ -143,7 +155,7 @@ router.post('/api/repo/share', requireAuth, async (req, res) => {
             };
         } else {
             try {
-                auditResult = await AiAuditor.auditCommand(command);
+                auditResult = await AiAuditor.auditCommand(cleanCommandData);
             } catch (e) {
                 console.warn("[Repo] AI Audit failed. Defaulting.");
                 auditResult = {
@@ -178,52 +190,73 @@ router.post('/api/repo/share', requireAuth, async (req, res) => {
         }
 
         let repoId = command.repoId;
+        let parentRepoCommandId = null;
         let generatedChangelog = "Initial Release";
 
+        // Logic to handle Updates vs Forking
         if (repoId) {
             const existing = await RepoCommandModel.findOne({ id: repoId });
-            if (existing && existing.authorId === user.userId) {
-                if (!skipAi && existing.commandData) {
-                    generatedChangelog = await AiAuditor.generateChangelog(existing.commandData, command);
-                } else if (skipAi) {
-                    generatedChangelog = "Update (AI Skipped)";
-                }
+            
+            if (existing) {
+                if (existing.authorId === user.userId) {
+                    // --- AUTHOR UPDATE ---
+                    // This is the owner updating their own command.
+                    
+                    if (!skipAi && existing.commandData) {
+                        generatedChangelog = await AiAuditor.generateChangelog(existing.commandData, cleanCommandData);
+                    } else if (skipAi) {
+                        generatedChangelog = "Update (AI Skipped)";
+                    }
 
-                if (existing.commandData) {
-                    const historyEntry = {
-                        versionId: crypto.randomUUID(),
-                        updatedAt: existing.updatedAt,
-                        changelog: existing.changelog || "Previous version",
-                        commandData: existing.commandData
-                    };
-                    if (!existing.versions) existing.versions = [];
-                    existing.versions.unshift(historyEntry);
-                    if (existing.versions.length > 20) existing.versions = existing.versions.slice(0, 20);
-                }
+                    if (existing.commandData) {
+                        const historyEntry = {
+                            versionId: crypto.randomUUID(),
+                            updatedAt: existing.updatedAt,
+                            changelog: existing.changelog || "Previous version",
+                            commandData: existing.commandData
+                        };
+                        if (!existing.versions) existing.versions = [];
+                        existing.versions.unshift(historyEntry);
+                        if (existing.versions.length > 20) existing.versions = existing.versions.slice(0, 20);
+                    }
 
-                existing.name = finalName;
-                if (!existing.category || existing.category === 'General') {
-                    existing.category = auditResult.primaryCategory;
+                    existing.name = finalName;
+                    if (!existing.category || existing.category === 'General') {
+                        existing.category = auditResult.primaryCategory;
+                    }
+                    existing.subCategories = auditResult.subCategories || [];
+                    
+                    // Update command data with the sanitized version, keep repoId
+                    existing.commandData = { ...cleanCommandData, repoId: repoId }; 
+                    
+                    existing.description = auditResult.description;
+                    existing.executionDescription = auditResult.executionDescription;
+                    existing.tags = auditResult.tags;
+                    existing.isSafe = auditResult.isSafe;
+                    existing.verificationStatus = auditResult.verificationStatus;
+                    existing.toxicityReason = auditResult.toxicityReason;
+                    existing.detailedReport = auditResult.detailedReport;
+                    existing.updatedAt = Date.now();
+                    existing.visibility = visibility || existing.visibility;
+                    existing.allowedUsers = finalAllowedUsers;
+                    existing.changelog = generatedChangelog;
+                    
+                    await existing.save();
+                    return res.json({ success: true, item: existing, isUpdate: true, changelog: generatedChangelog });
+                } else {
+                    // --- FORK / CLONE ---
+                    // User is trying to share a command that has a repoId, but they are NOT the author.
+                    // Treat this as a new command (Fork), and link back to parent.
+                    parentRepoCommandId = repoId;
+                    repoId = null; // Force new ID generation
                 }
-                existing.subCategories = auditResult.subCategories || [];
-                existing.commandData = command; 
-                existing.description = auditResult.description;
-                existing.executionDescription = auditResult.executionDescription;
-                existing.tags = auditResult.tags;
-                existing.isSafe = auditResult.isSafe;
-                existing.verificationStatus = auditResult.verificationStatus;
-                existing.toxicityReason = auditResult.toxicityReason;
-                existing.detailedReport = auditResult.detailedReport;
-                existing.updatedAt = Date.now();
-                existing.visibility = visibility || existing.visibility;
-                existing.allowedUsers = finalAllowedUsers;
-                existing.changelog = generatedChangelog;
-                
-                await existing.save();
-                return res.json({ success: true, item: existing, isUpdate: true, changelog: generatedChangelog });
+            } else {
+                // Repo ID existed in command but not found in DB? Treat as new.
+                repoId = null; 
             }
         }
 
+        // --- NEW COMMAND (OR FORK) ---
         const newRepoId = crypto.randomUUID();
         const newRepoItem = {
             id: newRepoId,
@@ -232,7 +265,8 @@ router.post('/api/repo/share', requireAuth, async (req, res) => {
             subCategories: auditResult.subCategories || [],
             authorName: user.username,
             authorId: user.userId,
-            commandData: { ...command, repoId: newRepoId },
+            parentRepoCommandId: parentRepoCommandId, // Link to original if cloned
+            commandData: { ...cleanCommandData, repoId: newRepoId }, // Inject NEW repo ID
             description: auditResult.description,
             executionDescription: auditResult.executionDescription,
             tags: auditResult.tags,
@@ -326,6 +360,12 @@ router.get('/api/repo/:id/import', async (req, res) => {
         }
         item.downloads += 1;
         await item.save();
+        
+        // Return cleaned item for import, ensuring IDs are ready to be regenerated on client-side if needed
+        // The client-side logic (RepositoryModal/App) handles ID regeneration for local context.
+        // We just ensure we don't send back stale IDs if possible, or send clean structure.
+        // The 'commandData' is already sanitized of channelId/id on save, so it should be safe.
+        
         res.json(item);
     } catch (e) { res.status(500).json({ error: e.message }); }
 });

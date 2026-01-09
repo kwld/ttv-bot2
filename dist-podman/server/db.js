@@ -66,6 +66,8 @@ const repoCommandSchema = new mongoose.Schema({
   updatedAt: { type: Number, default: Date.now },
   detailedReport: String,
   
+  parentRepoCommandId: String, // Tracks if this is a fork/clone
+  
   visibility: { type: String, enum: ['PUBLIC', 'PRIVATE'], default: 'PUBLIC' },
   allowedUsers: [String],
   

@@ -243,6 +243,11 @@ const RepositoryModal: React.FC<RepositoryModalProps> = ({
                                       <i className="fas fa-check-circle"></i> Verified Safe
                                   </span>
                               )}
+                              {detailedItem.parentRepoCommandId && (
+                                   <span className="text-[10px] font-black uppercase tracking-widest bg-indigo-900/50 text-indigo-400 px-2 py-1 rounded border border-indigo-500/30 flex items-center gap-1" title="This command is a modified version of another command">
+                                       <i className="fas fa-code-branch"></i> Fork / Clone
+                                   </span>
+                              )}
                           </div>
                           <h2 className="text-2xl font-black text-white">{detailedItem.name}</h2>
                           <div className="flex items-center gap-2 mt-1 text-slate-400 text-xs">
@@ -454,6 +459,7 @@ const RepositoryModal: React.FC<RepositoryModalProps> = ({
                         const isPrivate = item.visibility === 'PRIVATE';
                         const isInstalled = existingRepoIds.has(item.id);
                         const statusState = importStatus[item.id] || 'idle';
+                        const isClone = !!item.parentRepoCommandId;
                         
                         let badge = null;
                         if (isAuthor) badge = { label: "MINE", color: "bg-indigo-600 text-white" };
@@ -489,7 +495,10 @@ const RepositoryModal: React.FC<RepositoryModalProps> = ({
                             <div className="flex items-start justify-between mb-2 mt-6">
                                 <div className="w-full">
                                     <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex justify-between items-center">
-                                        <span>{item.category}</span>
+                                        <div className="flex gap-2 items-center">
+                                            <span>{item.category}</span>
+                                            {isClone && <span className="text-[9px] text-slate-600 bg-slate-800/50 px-1 rounded" title="Forked from another command"><i className="fas fa-code-branch"></i> Fork</span>}
+                                        </div>
                                         {isAuthor && (
                                             <div className="flex gap-2">
                                                 <button onClick={(e) => toggleVisibility(item, e)} className={`hover:text-white transition-colors ${isPrivate ? 'text-amber-500' : 'text-slate-600'}`} title="Visibility">
