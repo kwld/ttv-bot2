@@ -3,7 +3,9 @@ import { Token } from './models.js';
 import axios from 'axios';
 import { TwitchIRCClient } from './TwitchIRC.js';
 
-export class TwitchBot {
+const IS_DEV = process.env.DEV === 'true';
+
+export class TwitchService {
   constructor(gateway) {
     this.gateway = gateway;
     this.client = null;
@@ -37,7 +39,7 @@ export class TwitchBot {
       channels: [], // Will be populated dynamically via joins
       
       onConnected: () => {
-        console.log('[TwitchIRC] Connected to Chat.');
+        if (IS_DEV) console.log('[TwitchIRC] Connected to Chat.');
         if (this.gateway) {
             this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: true });
             this.gateway.broadcast('SYSTEM_LOG', {
@@ -55,7 +57,7 @@ export class TwitchBot {
       },
 
       onJoin: (channel) => {
-          console.log(`[TwitchIRC] JOINED #${channel}`);
+          if (IS_DEV) console.log(`[TwitchIRC] JOINED #${channel}`);
           if (this.gateway) {
               this.gateway.broadcast('SYSTEM_LOG', {
                   type: 'SYSTEM_LOG',
@@ -66,7 +68,7 @@ export class TwitchBot {
       },
 
       onPart: (channel) => {
-          console.log(`[TwitchIRC] PARTED #${channel}`);
+          if (IS_DEV) console.log(`[TwitchIRC] PARTED #${channel}`);
           if (this.gateway) {
               this.gateway.broadcast('SYSTEM_LOG', {
                   type: 'SYSTEM_LOG',
@@ -77,12 +79,11 @@ export class TwitchBot {
       },
 
       onMessage: (msg) => {
-          if (process.env.DEV === 'true') {
-               console.log(`[IRC-DEBUG] #${msg.channel} ${msg.user.displayName}: ${msg.message}`);
+          if (IS_DEV) {
+               // console.log(`[IRC-DEBUG] #${msg.channel} ${msg.user.displayName}: ${msg.message}`);
           }
 
           // Convert internal msg format to EventSub-like structure for the gateway
-          // UPDATED: Include raw 1:1 mapping as requested to ensure no data loss
           const eventData = {
               broadcaster_user_id: msg.tags['room-id'],
               broadcaster_user_login: msg.channel,
@@ -133,7 +134,7 @@ export class TwitchBot {
     if (this.client) {
       try {
         this.client.disconnect();
-        console.log('[TwitchIRC] Client Disconnected');
+        if (IS_DEV) console.log('[TwitchIRC] Client Disconnected');
       } catch (e) {
         console.error('[TwitchIRC] Error disconnecting:', e);
       }
@@ -150,7 +151,7 @@ export class TwitchBot {
   }
   
   async syncAllStreamers() {
-    console.log('[EventSub] Syncing subscriptions for all streamers...');
+    if (IS_DEV) console.log('[EventSub] Syncing subscriptions for all streamers...');
     const streamers = await Token.find({ type: 'streamer' });
     for (const streamer of streamers) {
         await this.setupEventSub(streamer);
@@ -161,7 +162,7 @@ export class TwitchBot {
 
   join(channel) {
       if (this.client) {
-          console.log(`[GatewayCmd] Joining ${channel}`);
+          if (IS_DEV) console.log(`[GatewayCmd] Joining ${channel}`);
           // Our custom client handles queuing if not connected
           this.client.join(channel);
       }
@@ -169,14 +170,14 @@ export class TwitchBot {
 
   part(channel) {
       if (this.client) {
-          console.log(`[GatewayCmd] Parting ${channel}`);
+          if (IS_DEV) console.log(`[GatewayCmd] Parting ${channel}`);
           this.client.part(channel);
       }
   }
 
   say(channel, message) {
     if (this.client) {
-      console.log(`[GatewayCmd] Saying in ${channel}: ${message}`);
+      if (IS_DEV) console.log(`[GatewayCmd] Saying in ${channel}: ${message}`);
       this.client.say(channel, message);
     }
   }
@@ -205,7 +206,7 @@ export class TwitchBot {
       tokenDoc.expiresIn = res.data.expires_in;
       tokenDoc.obtainedAt = new Date();
       await tokenDoc.save();
-      console.log(`[Auth] Refreshed token for ${tokenDoc.login}`);
+      if (IS_DEV) console.log(`[Auth] Refreshed token for ${tokenDoc.login}`);
       return tokenDoc;
     } catch (e) {
       console.error('[Auth] Failed to refresh token', e.response?.data || e.message);
@@ -285,7 +286,7 @@ export class TwitchBot {
               },
               params: { id }
           });
-          console.log(`[EventSub] Deleted subscription ${id}`);
+          if (IS_DEV) console.log(`[EventSub] Deleted subscription ${id}`);
       } catch (e) {
           if (e.response?.status !== 404) {
              console.error(`[EventSub] Failed to delete subscription ${id}`, e.response?.data || e.message);
@@ -294,7 +295,7 @@ export class TwitchBot {
   }
 
   async cleanupOrphanedSubscriptions() {
-    console.log('[EventSub] Scanning for orphaned/broken subscriptions...');
+    if (IS_DEV) console.log('[EventSub] Scanning for orphaned/broken subscriptions...');
     try {
       const appToken = await this.getAppAccessToken();
       const allSubs = await this.getAllSubscriptions(appToken);
@@ -309,12 +310,12 @@ export class TwitchBot {
         const isBroken = sub.status === 'webhook_callback_verification_failed' || sub.status === 'authorization_revoked';
         
         if (isWrongUrl || isBroken) {
-          console.log(`[EventSub] Deleting orphan: ${sub.id} (${sub.status})`);
+          if (IS_DEV) console.log(`[EventSub] Deleting orphan: ${sub.id} (${sub.status})`);
           await this.deleteSubscription(sub.id, appToken);
           deletedCount++;
         }
       }
-      if (deletedCount > 0) console.log(`[EventSub] Cleaned up ${deletedCount} orphaned subscriptions.`);
+      if (deletedCount > 0 && IS_DEV) console.log(`[EventSub] Cleaned up ${deletedCount} orphaned subscriptions.`);
     } catch (e) {
       console.error('[EventSub] Startup cleanup failed:', e.message);
     }
@@ -420,7 +421,7 @@ export class TwitchBot {
                 'Content-Type': 'application/json'
             }
             });
-            console.log(`[EventSub] Subscribed to ${def.type} for ${streamerToken.login}`);
+            if (IS_DEV) console.log(`[EventSub] Subscribed to ${def.type} for ${streamerToken.login}`);
         } catch (e) {
             if (e.response?.status !== 409) {
                 console.error(`[EventSub] Failed to subscribe ${def.type} for ${streamerToken.login}`, e.response?.data);
@@ -430,7 +431,7 @@ export class TwitchBot {
   }
   
   async removeStreamer(twitchId) {
-      console.log(`[Bot] Removing streamer ${twitchId}...`);
+      if (IS_DEV) console.log(`[Bot] Removing streamer ${twitchId}...`);
       try {
           const appAccessToken = await this.getAppAccessToken();
           const allSubs = await this.getAllSubscriptions(appAccessToken);

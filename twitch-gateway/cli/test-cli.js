@@ -1,9 +1,15 @@
 
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
-const WebSocket = require('ws');
-const readline = require('readline');
-const fs = require('fs');
+import path from 'path';
+import fs from 'fs';
+import WebSocket from 'ws';
+import readline from 'readline';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const WS_PORT = process.env.WS_PORT || 8080;
 const CONFIG_FILE = path.join(__dirname, '../config/gateway-token.json');

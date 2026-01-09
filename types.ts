@@ -142,6 +142,7 @@ export interface Channel {
   serverLocked?: boolean; // Backend Connection Lock
 
   botEnabled?: boolean; // Whether the bot is active/connected for this channel (Server mode)
+  serverJoined?: boolean; // Whether the bot is ACTUALLY connected to IRC (Server mode status)
   apiEnabled?: boolean; // Whether AI/External API calls are allowed (Server mode)
 }
 

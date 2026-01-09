@@ -277,7 +277,7 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
   const [isPaused, setIsPaused] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
   const [isCopiedState, setIsCopiedState] = useState(false);
-
+  
   // Autocomplete State
   const [autocompleteState, setAutocompleteState] = useState<{
       isActive: boolean;
@@ -511,15 +511,6 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
       return () => document.removeEventListener('copy', handleCopy);
   }, [selectedMessageIds, messages, showSeconds]);
 
-  const placeholders = useMemo(() => {
-    const list = activeCommands.map(c => {
-        const triggers = c.rootAction.settings.triggers ? c.rootAction.settings.triggers.split(',')[0].trim() : '';
-        return triggers || c.name;
-    }).filter(Boolean);
-    // Remove duplicates
-    return Array.from(new Set(list));
-  }, [activeCommands]);
-
   // Determine if input should be disabled due to conflict
   const isConflictDisabled = useMemo(() => {
       if (activeChannel.mode === 'server') {
@@ -541,16 +532,22 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
           return t('chat.placeholder_no_commands');
       }
       
-      if (placeholders.length === 0) return t('chat.placeholder_no_commands');
-
-      // Simplified: Just list all
-      return `${t('chat.try_typing')} ${placeholders.join(', ')}`;
-  }, [placeholders, isReadOnly, activeCommands.length, commands, t, isTwitchConnected, isChatEnabled, isConflictDisabled, activeChannel.id]);
+      // List multiple commands in placeholder
+      const triggers = activeCommands
+          .map(c => c.rootAction.settings.triggers?.split(',')[0]?.trim())
+          .filter(Boolean)
+          .slice(0, 5); // Show first 5
+      
+      if (triggers.length > 0) {
+          return `💡 ${t('chat.try_typing')} ${triggers.join(', ')}...`;
+      }
+      
+      return t('chat.placeholder_default'); // Fallback
+  }, [isReadOnly, activeCommands, commands, t, isTwitchConnected, isChatEnabled, isConflictDisabled, activeChannel.id]);
 
   const allCommandsTooltip = useMemo(() => {
-      if (placeholders.length === 0) return '';
-      return `${t('chat.try_typing')} ${placeholders.join(', ')}`;
-  }, [placeholders, t]);
+      return activeCommands.map(c => c.rootAction.settings.triggers?.split(',')[0]).filter(Boolean).join(', ');
+  }, [activeCommands]);
 
   useEffect(() => { 
       if (!isPaused) {
@@ -941,7 +938,7 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
                       
                       {activeCommands.length > 0 && (
                           <div className="flex flex-wrap justify-center gap-2 max-w-xs animate-in fade-in slide-in-from-bottom-2 duration-500">
-                              {activeCommands.map(cmd => {
+                              {activeCommands.slice(0, 8).map(cmd => {
                                   const trigger = cmd.rootAction.settings.triggers?.split(',')[0]?.trim();
                                   if (!trigger) return null;
                                   return (

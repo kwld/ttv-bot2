@@ -158,153 +158,163 @@ export const useLocalEngine = ({
 
     const handleIncomingMessage = useCallback((payload: any) => {
         const cName = payload.channel || payload.channelName;
+        
+        // Find matching LOCAL channel (not server)
+        // If channelName comes from IRC, it might differ in case
+        const channelName = cName || '';
+        const matchingChannel = channels.find(c => 
+            c.name.toLowerCase() === channelName.toLowerCase() && c.mode !== 'server'
+        );
+
+        if (!matchingChannel) return; // Ignore if no local config for this channel exists
+
         if (payload.channelId && cName) {
             checkAndLoadEmotes(payload.channelId, cName);
         }
-    
-        const channelName = payload.channel || payload.channelName;
-        if (!channelName) return;
-    
-        const matchingChannels = channels.filter(c => 
-            c.name.toLowerCase() === channelName.toLowerCase() && c.mode !== 'server'
-        );
+
+        const engine = localEnginesRef.current.get(matchingChannel.id);
+        if (!engine) return;
+
+        let text = payload.text || payload.message || '';
+        text = text.replace(/[\u{E0000}\u034F\u200B-\u200D\uFEFF]+/gu, ' ').trim();
+
+        const user = payload.user || {};
         
-        if (matchingChannels.length === 0) return;
-    
-        matchingChannels.forEach(targetChannel => {
-            const engine = localEnginesRef.current.get(targetChannel.id);
-            if (!engine) return;
-    
-            let text = payload.text || payload.message || '';
-            text = text.replace(/[\u{E0000}\u034F\u200B-\u200D\uFEFF]+/gu, ' ').trim();
-    
-            const user = payload.user || {};
-            
-            if (targetChannel.mode === 'testing' && selectedUser) {
-                 engine.registerUser(selectedUser);
-            } else {
-                 const fullUser = {
-                     ...user,
-                     isModerator: user.isModerator || user.isMod || payload.isModerator,
-                     isBroadcaster: user.isBroadcaster || payload.isBroadcaster,
-                     isVip: user.isVip || payload.isVip,
-                     isSubscriber: user.isSubscriber || user.isSub || payload.isSubscriber
-                 };
-                 engine.registerUser(fullUser);
-            }
-    
-            const waitingMap = activeWaitings;
-            for (const [execId, val] of Object.entries(waitingMap)) {
-                const info = val as any;
-                if (info.channelId === targetChannel.id) {
-                    if (info.targetUserId && info.targetUserId !== user.id) continue;
-    
-                    const keywords = info.keyword ? info.keyword.split(',').map((k: string) => k.trim().toLowerCase()) : [];
-                    const cleanTextLower = text.toLowerCase();
-                    
-                    let isMatch = false;
-                    if (info.useRegex) {
-                        try {
-                            const regex = new RegExp(info.keyword, 'i');
-                            isMatch = regex.test(text);
-                        } catch (e) {}
-                    } else {
-                        isMatch = keywords.includes(cleanTextLower);
-                    }
-    
-                    if (isMatch) { 
-                        const currentList = localParticipantsRef.current.get(execId) || [];
-                        if (!currentList.some(p => p.user.id === user.id)) {
-                            currentList.push({ user, keyword: text });
-                            localParticipantsRef.current.set(execId, currentList);
-                            
-                            setActiveWaitings(prev => {
-                                const current = prev[execId];
-                                if (current) {
-                                    return { 
-                                        ...prev, 
-                                        [execId]: { ...current, participantCount: currentList.length } 
-                                    };
-                                }
-                                return prev;
-                            });
-    
-                            if (targetChannel.id === activeChannelIdRef.current) {
-                                setFlashingNodeId(info.actionId);
-                                setTimeout(() => setFlashingNodeId(null), 200);
+        if (matchingChannel.mode === 'testing' && selectedUser) {
+             engine.registerUser(selectedUser);
+        } else {
+             const fullUser = {
+                 ...user,
+                 isModerator: user.isModerator || user.isMod || payload.isModerator,
+                 isBroadcaster: user.isBroadcaster || payload.isBroadcaster,
+                 isVip: user.isVip || payload.isVip,
+                 isSubscriber: user.isSubscriber || user.isSub || payload.isSubscriber
+             };
+             engine.registerUser(fullUser);
+        }
+
+        const waitingMap = activeWaitings;
+        for (const [execId, val] of Object.entries(waitingMap)) {
+            const info = val as any;
+            if (info.channelId === matchingChannel.id) {
+                if (info.targetUserId && info.targetUserId !== user.id) continue;
+
+                const keywords = info.keyword ? info.keyword.split(',').map((k: string) => k.trim().toLowerCase()) : [];
+                const cleanTextLower = text.toLowerCase();
+                
+                let isMatch = false;
+                if (info.useRegex) {
+                    try {
+                        const regex = new RegExp(info.keyword, 'i');
+                        isMatch = regex.test(text);
+                    } catch (e) {}
+                } else {
+                    isMatch = keywords.includes(cleanTextLower);
+                }
+
+                if (isMatch) { 
+                    const currentList = localParticipantsRef.current.get(execId) || [];
+                    if (!currentList.some(p => p.user.id === user.id)) {
+                        currentList.push({ user, keyword: text });
+                        localParticipantsRef.current.set(execId, currentList);
+                        
+                        setActiveWaitings(prev => {
+                            const current = prev[execId];
+                            if (current) {
+                                return { 
+                                    ...prev, 
+                                    [execId]: { ...current, participantCount: currentList.length } 
+                                };
                             }
-    
-                            if (info.targetUserId) {
-                                engine.triggerReply(execId, { user, keyword: text });
-                            } 
-                            else if (info.maxUsers > 0 && currentList.length >= info.maxUsers) {
-                                engine.triggerReply(execId, { user, keyword: text });
-                            }
+                            return prev;
+                        });
+
+                        if (matchingChannel.id === activeChannelIdRef.current) {
+                            setFlashingNodeId(info.actionId);
+                            setTimeout(() => setFlashingNodeId(null), 200);
                         }
-                        return; 
+
+                        let shouldTrigger = false;
+                        if (info.targetUserId) {
+                             shouldTrigger = true;
+                        } else if (info.maxUsers !== undefined) {
+                             // Collection Mode
+                             if (info.maxUsers > 0 && currentList.length >= info.maxUsers) {
+                                 shouldTrigger = true;
+                             }
+                        } else {
+                             // Untargeted single reply (Any User)
+                             shouldTrigger = true;
+                        }
+                        
+                        if (shouldTrigger) {
+                            engine.triggerReply(execId, { user, keyword: text });
+                        }
                     }
+                    // Continue loop in case multiple flows wait for same keyword? Usually one consumes.
+                    return; 
                 }
             }
-    
-            const cleanText = text.trim();
-            const parts = cleanText.split(/\s+/);
-            const firstWord = parts[0].toLowerCase();
+        }
+
+        const cleanText = text.trim();
+        const parts = cleanText.split(/\s+/);
+        const firstWord = parts[0].toLowerCase();
+        
+        const channelCommands = commandsCacheRef.current.get(matchingChannel.id) || [];
+        
+        const cmd = channelCommands.find(c => c.enabled && c.rootAction.settings.triggers?.toLowerCase().split(',').map((t: string) => t.trim()).includes(firstWord));
+        
+        if (cmd) {
+            const args = parts.slice(1);
+            const runtimeUser = {
+                ...user,
+                isModerator: payload.isModerator || user.isMod || user.isModerator,
+                isBroadcaster: payload.isBroadcaster || user.isBroadcaster,
+                isVip: payload.isVip || user.isVip,
+                isSubscriber: payload.isSubscriber || user.isSub || user.isSubscriber
+            };
+
+            const execId = generateUUID();
             
-            const channelCommands = commandsCacheRef.current.get(targetChannel.id) || [];
+            // --- INJECT AVAILABLE COMMANDS ---
+            const allCommands = channelCommands
+                .filter(c => c.enabled)
+                .map(c => c.rootAction.settings.triggers?.split(',')[0]?.trim())
+                .filter(Boolean)
+                .join(', ');
+
+            setLocalProcesses(prev => [...prev, {
+                executionId: execId,
+                commandId: cmd.id,
+                commandName: cmd.name,
+                channelId: matchingChannel.id,
+                channelName: matchingChannel.name,
+                startedAt: Date.now(),
+                source: 'local',
+                user: { displayName: runtimeUser.displayName, username: runtimeUser.username }
+            }]);
+
+            engine.run(
+                cmd, 
+                runtimeUser, 
+                { isBroadcaster: runtimeUser.isBroadcaster, isModerator: runtimeUser.isModerator, isVip: runtimeUser.isVip, isSubscriber: runtimeUser.isSubscriber },
+                args,
+                matchingChannel,
+                execId,
+                undefined, // errorState
+                {}, // eventData
+                { all_commands: allCommands } // systemVariables
+            ).then(() => {
+                setLocalProcesses(prev => prev.filter(p => p.executionId !== execId));
+            }).catch(() => {
+                setLocalProcesses(prev => prev.filter(p => p.executionId !== execId));
+            });
             
-            const cmd = channelCommands.find(c => c.enabled && c.rootAction.settings.triggers?.toLowerCase().split(',').map((t: string) => t.trim()).includes(firstWord));
-            
-            if (cmd) {
-                const args = parts.slice(1);
-                const runtimeUser = {
-                    ...user,
-                    isModerator: payload.isModerator || user.isMod || user.isModerator,
-                    isBroadcaster: payload.isBroadcaster || user.isBroadcaster,
-                    isVip: payload.isVip || user.isVip,
-                    isSubscriber: payload.isSubscriber || user.isSub || user.isSubscriber
-                };
-    
-                const execId = generateUUID();
-                
-                // --- INJECT AVAILABLE COMMANDS ---
-                const allCommands = channelCommands
-                    .filter(c => c.enabled)
-                    .map(c => c.rootAction.settings.triggers?.split(',')[0]?.trim())
-                    .filter(Boolean)
-                    .join(', ');
-    
-                setLocalProcesses(prev => [...prev, {
-                    executionId: execId,
-                    commandId: cmd.id,
-                    commandName: cmd.name,
-                    channelId: targetChannel.id,
-                    channelName: targetChannel.name,
-                    startedAt: Date.now(),
-                    source: 'local',
-                    user: { displayName: runtimeUser.displayName, username: runtimeUser.username }
-                }]);
-    
-                engine.run(
-                    cmd, 
-                    runtimeUser, 
-                    { isBroadcaster: runtimeUser.isBroadcaster, isModerator: runtimeUser.isModerator, isVip: runtimeUser.isVip, isSubscriber: runtimeUser.isSubscriber },
-                    args,
-                    targetChannel,
-                    execId,
-                    undefined, // errorState
-                    {}, // eventData
-                    { all_commands: allCommands } // systemVariables
-                ).then(() => {
-                    setLocalProcesses(prev => prev.filter(p => p.executionId !== execId));
-                }).catch(() => {
-                    setLocalProcesses(prev => prev.filter(p => p.executionId !== execId));
-                });
-                
-                if (targetChannel.id === activeChannelIdRef.current) {
-                    setPointsState(engine.getPoints());
-                }
+            if (matchingChannel.id === activeChannelIdRef.current) {
+                setPointsState(engine.getPoints());
             }
-        });
+        }
     }, [channels, activeWaitings, selectedUser, checkAndLoadEmotes]);
 
     return {

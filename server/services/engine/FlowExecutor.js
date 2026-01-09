@@ -1209,7 +1209,7 @@ export class FlowExecutor {
       },
       args,
       static: command.staticVariables,
-      channel: { name: channel.name, currency: channel.currencyName, currencyName: channel.currencyName, currencySymbol: channel.currencySymbol, mode: channel.mode, apiEnabled: channel.apiEnabled },
+      channel: { id: channel.id, name: channel.name, currency: channel.currencyName, currencyName: channel.currencyName, currencySymbol: channel.currencySymbol, mode: channel.mode, apiEnabled: channel.apiEnabled },
       datetime: dt,
       event: eventData, // Inject Event Data
       variables: {
@@ -1300,7 +1300,7 @@ export class FlowExecutor {
         },
         args: overrides.args,
         static: command.staticVariables,
-        channel: { name: channel.name, currency: channel.currencyName, currencySymbol: channel.currencySymbol, mode: channel.mode, apiEnabled: channel.apiEnabled },
+        channel: { id: channel.id, name: channel.name, currency: channel.currencyName, currencySymbol: channel.currencySymbol, mode: channel.mode, apiEnabled: channel.apiEnabled },
         datetime: dt,
         event: {}, // Empty event data for partial/debug
         variables: {

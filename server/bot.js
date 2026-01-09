@@ -19,17 +19,12 @@ const __dirname = path.dirname(__filename);
 const IS_DEV = process.env.DEV === 'true';
 
 const log = (tag, msg) => {
+    if (!IS_DEV) return;
     const time = new Date().toISOString().split('T')[1].split('.')[0];
     console.log(`[${time}] [${tag}] ${msg}`);
 };
 
 const authManager = new AuthManager();
-
-// Deduplication Cache (Legacy check, Gateway deduplicates mostly)
-const processedMessageIds = new Set();
-setInterval(() => {
-    if (processedMessageIds.size > 2000) processedMessageIds.clear();
-}, 600000); 
 
 // --- Executor Logic ---
 const getExecutor = (channelId, channelName) => {
@@ -59,9 +54,34 @@ const getExecutor = (channelId, channelName) => {
     const callbacks = {
         onSay: (msg, provider, chId) => {
             let target = channelName;
-            if (chId && usersDB[chId]) target = usersDB[chId].username;
-            if (botClient && botClient.isConnected && target) {
+            // Use username from DB if available for accuracy
+            if (chId && usersDB[chId] && usersDB[chId].username) {
+                target = usersDB[chId].username;
+            }
+            
+            log('BotAction', `Requesting SAY in #${target}: ${msg}`);
+
+            if (botClient && botClient.isConnected) {
                 botClient.say(target, msg);
+                // Echo back to frontend as "Self" message so it appears in chat immediately
+                const botUser = { id: 'bot', username: 'bot', displayName: 'Bot' }; 
+                broadcastToUser(channelId, { 
+                    type: 'CHAT_MESSAGE', 
+                    payload: {
+                        id: crypto.randomUUID(),
+                        provider: 'twitch',
+                        channelId: channelId,
+                        channelName: target,
+                        text: msg,
+                        user: botUser,
+                        timestamp: Date.now(),
+                        isLive: true,
+                        isBot: true,
+                        isSelf: true
+                    }
+                });
+            } else {
+                if (IS_DEV) console.warn(`[Bot] Cannot say message. Client connected: ${botClient?.isConnected}, Target: ${target}`);
             }
         },
         onLog: (msg, level) => {
@@ -82,7 +102,7 @@ const getExecutor = (channelId, channelName) => {
         },
         checkActiveWait: (criteria) => {
             for (const waiting of activeWaitings.values()) {
-                if (waiting.channelId !== criteria.channelId) continue;
+                if (String(waiting.channelId) !== String(criteria.channelId)) continue;
                 
                 if (criteria.type === 'keyword') {
                     const activeKeys = waiting.keyword.toLowerCase().split(',').map(k => k.trim());
@@ -195,92 +215,146 @@ EventSubService.setExecutorFactory(getExecutor);
 
 // --- Bot Functions ---
 
-const getChannelOwnerId = (channelName) => {
+const getChannelOwnerId = async (channelName) => {
     const lower = channelName.toLowerCase();
+    
+    // 1. Try Memory Cache (Usernames)
     const user = Object.values(usersDB).find(u => u.username && u.username.toLowerCase() === lower);
     if (user) return user.id;
-    if (usersDB[lower]) return usersDB[lower].id;
+
+    // 2. Try DB Lookup (Channel Settings)
+    const settings = await ChannelSettingsModel.findOne({ channelName: new RegExp(`^${channelName}$`, 'i') });
+    if (settings) return settings.channelId;
+
+    // 3. Try Auth Model (The registered user)
+    const auth = await AuthModel.findOne({ username: new RegExp(`^${channelName}$`, 'i') });
+    if (auth) return auth.userId;
+
     return null;
 };
 
+// Function to broadcast state when bot joins channel
+export const announceChannelState = async (channelName) => {
+    const channelId = await getChannelOwnerId(channelName);
+    if (!channelId) {
+        if (IS_DEV) console.warn(`[Bot] Could not announce state for #${channelName} - ID not found.`);
+        return;
+    }
+
+    const channelCommands = commandsDB.filter(c => String(c.channelId) === String(channelId) && c.enabled);
+    const triggers = channelCommands.map(c => c.rootAction.settings.triggers).join(', ');
+
+    if (IS_DEV) console.log(`[Bot] Announcing state for #${channelName} (ID: ${channelId}). Commands: ${channelCommands.length}`);
+
+    broadcastToUser(channelId, {
+        type: 'CHAT_MESSAGE',
+        payload: {
+            id: crypto.randomUUID(),
+            provider: 'twitch',
+            channelId: String(channelId),
+            channelName: channelName,
+            text: `Bot Active. Channel ID: ${channelId}. Loaded Commands (${channelCommands.length}): [${triggers}]`,
+            user: { id: 'system', username: 'system', displayName: 'System', badges: {} },
+            timestamp: Date.now(),
+            isSystem: true,
+            metadata: { level: 'success' },
+            isLive: true
+        }
+    });
+};
+
+// --- CORE HANDLER ---
 export const handleBotMessage = async (event, forcedEventType = null) => {
     const { channel, message, user } = event;
 
-    if (event.tags && event.tags.id) {
-        if (processedMessageIds.has(event.tags.id)) return;
-        processedMessageIds.add(event.tags.id);
+    if (IS_DEV) {
+        // console.log(`[BotHandler] Incoming: [${channel}] ${user.displayName}: ${message}`);
     }
 
-    if (IS_DEV && !forcedEventType) {
-        log('Gateway', `#${channel} ${user.displayName}: ${message}`);
-    }
-
-    let channelOwnerId = getChannelOwnerId(channel);
+    // 1. Resolve Channel Owner (The User ID who owns the bot configuration for this channel)
+    let channelOwnerId = event.channelId;
     
     if (!channelOwnerId) {
-        const manualSetting = await ChannelSettingsModel.findOne({ channelName: new RegExp(`^${channel}$`, 'i') });
-        if (manualSetting) channelOwnerId = manualSetting.channelId;
-        else {
-            const auth = await AuthModel.findOne({ username: new RegExp(`^${channel}$`, 'i') });
-            if (auth) channelOwnerId = auth.userId;
-        }
-        
-        if (channelOwnerId && !usersDB[channelOwnerId]) {
-            usersDB[channelOwnerId] = { id: channelOwnerId, username: channel, displayName: channel, points: 0 };
-            usersDB[channel.toLowerCase()] = usersDB[channelOwnerId];
-        }
+        channelOwnerId = await getChannelOwnerId(channel);
+        if (IS_DEV) log('DEBUG', `[Bot] Resolved Channel Owner by Name: ${channelOwnerId}`);
+    }
+    
+    if (channelOwnerId) channelOwnerId = String(channelOwnerId);
+
+    if (!channelOwnerId) {
+        if (IS_DEV) console.error(`[Bot] CRITICAL: Dropping message from #${channel} - Unknown Channel ID (Owner lookup failed).`);
+        return;
     }
 
-    if (!channelOwnerId) return;
+    // Initialize Memory for this channel if missing
+    if (!usersDB[channelOwnerId]) {
+        usersDB[channelOwnerId] = { id: channelOwnerId, username: channel, displayName: channel, points: 0 };
+        usersDB[channel.toLowerCase()] = usersDB[channelOwnerId];
+    }
 
+    // 2. Broadcast to Frontend (Mirroring)
+    if (!forcedEventType || forcedEventType === 'CHAT') {
+         broadcastToUser(channelOwnerId, { 
+             type: 'CHAT_MESSAGE', 
+             payload: {
+                 id: event.tags.id || crypto.randomUUID(),
+                 provider: 'twitch',
+                 channelId: channelOwnerId,
+                 channelName: channel,
+                 text: message,
+                 user: user,
+                 timestamp: Date.now(),
+                 isLive: true,
+                 isBot: event.is_self
+             }
+         });
+    }
+
+    // Clean invisible characters including ZWSP, LRM, RLM, and the weird 034F
+    // \p{C} - Other (Control, Format, etc)
+    // \u034F - Combining Grapheme Joiner
+    let cleanMessage = message.replace(/[\p{C}\p{Cf}\u{E0000}-\u{E007F}\u034F\u200B-\u200D\uFEFF]+/gu, '').trim();
+    if (!cleanMessage && message) cleanMessage = message;
+
+    // 4. Check if Bot is Enabled for this channel
     const settings = await ChannelSettingsModel.findOne({ channelId: channelOwnerId });
-    if (settings && settings.botEnabled === false) return;
+    if (settings && settings.botEnabled === false) {
+        return;
+    }
 
+    // 5. Update User Stats in DB
     const executor = getExecutor(channelOwnerId, channel);
 
-    const fullUser = {
-        ...user,
-        points: 0 
-    };
-    
-    // Update existing user data
+    const fullUser = { ...user, points: 0 };
     const existingUser = usersDB[user.id];
+    
     if (existingUser) {
         existingUser.messageCount = (existingUser.messageCount || 0) + 1;
         existingUser.lastActive = Date.now();
-        existingUser.username = user.username;
+        // Update display data in case it changed
         existingUser.displayName = user.displayName;
-        existingUser.isModerator = user.isMod;
-        existingUser.isSubscriber = user.isSub;
-        existingUser.isVip = user.isVip;
-        existingUser.isBroadcaster = user.isBroadcaster;
         existingUser.badges = user.badges;
     } else {
         usersDB[user.id] = { ...fullUser, messageCount: 1, lastActive: Date.now() };
-        usersDB[user.username.toLowerCase()] = usersDB[user.id];
     }
-
+    
     if (mongoose.connection.readyState === 1) {
-        const { _id, ...safeUser } = usersDB[user.id];
-        delete safeUser.points; 
-        
-        UserModel.findOneAndUpdate({ id: user.id }, { $set: safeUser }, { upsert: true, new: true })
-            .catch(err => { if (err.code !== 11000) console.error("User persist error:", err); });
-
-        PointModel.updateOne(
-            { userId: user.id, channelId: channelOwnerId },
-            { $setOnInsert: { amount: 0 } },
-            { upsert: true }
-        ).catch(err => console.error("Point assoc error:", err));
+        UserModel.updateOne({ id: user.id }, { 
+            $set: { 
+                username: user.username, 
+                displayName: user.displayName, 
+                lastActive: Date.now() 
+            },
+            $inc: { messageCount: 1 }
+        }, { upsert: true }).exec();
     }
 
     executor.registerUser(fullUser);
 
-    let cleanMessage = message.replace(/[\r\n\t\u200B-\u200D\uFEFF\u{E0000}\u034F]+/gu, ' ').trim();
-
+    // 6. Check Active Waits (Reply/Keyword)
     if (!forcedEventType || forcedEventType === 'CHAT') {
         for (const [executionId, waitingData] of activeWaitings.entries()) {
-            if (waitingData.channelId !== channelOwnerId) continue;
+            if (String(waitingData.channelId) !== String(channelOwnerId)) continue;
             if (waitingData.targetUserId && waitingData.targetUserId !== user.id) continue;
 
             const keywords = waitingData.keyword.split(',').map(k => k.trim().toLowerCase());
@@ -301,28 +375,40 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
                     broadcastToUser(channelOwnerId, { type: 'NODE_FLASH', payload: { nodeId: waitingData.actionId } });
                     broadcastToUser(channelOwnerId, { 
                         type: 'WAITING_UPDATE', 
-                        payload: { 
-                            executionId, 
-                            data: { ...waitingData, participantCount: currentList.length } 
-                        } 
+                        payload: { executionId, data: { ...waitingData, participantCount: currentList.length } } 
                     });
                     
+                    let shouldTrigger = false;
+                    
                     if (waitingData.targetUserId) {
-                        executor.triggerReply(executionId, { user: fullUser, keyword: cleanMessage });
-                    } else if (waitingData.maxUsers > 0 && currentList.length >= waitingData.maxUsers) {
-                        executor.triggerReply(executionId, { user: fullUser, keyword: cleanMessage });
-                    } else if (!waitingData.targetUserId && !waitingData.maxUsers) {
+                        // Specific user reply -> Trigger
+                        shouldTrigger = true;
+                    } else if (waitingData.maxUsers !== undefined) {
+                        // Collection Mode (WAIT_FOR_KEYWORD)
+                        // Trigger only if limit is set (>0) and reached
+                        // If maxUsers is 0, we DO NOT trigger (waiting for timeout)
+                        if (waitingData.maxUsers > 0 && currentList.length >= waitingData.maxUsers) {
+                            shouldTrigger = true;
+                        }
+                    } else {
+                        // Untargeted single reply (Any User) -> Trigger on first match
+                        shouldTrigger = true;
+                    }
+
+                    if (shouldTrigger) {
                         executor.triggerReply(executionId, { user: fullUser, keyword: cleanMessage });
                     }
                 }
-                return;
+                return; // Consumed by Wait Node
             }
         }
     }
 
+    // 7. Command Execution
     const parts = cleanMessage.split(/\s+/); 
     const triggerWord = parts[0].toLowerCase();
     
+    // Determine Events
     const activeEvents = new Set();
     if (forcedEventType) {
         if (forcedEventType === 'JOIN') activeEvents.add('On Join');
@@ -330,44 +416,46 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
     } else {
         activeEvents.add('On Message');
         if (event.isFirstMessage) activeEvents.add('On First Message');
-        if (event.tags) {
-            const msgId = event.tags['msg-id'];
-            if (msgId === 'raid') activeEvents.add('On Raid');
-            if (msgId === 'sub' || msgId === 'resub' || msgId === 'subgift') activeEvents.add('On Subscription');
-            if (event.tags['bits']) activeEvents.add('On Cheer');
-        }
     }
 
     const eventData = {
         isMessage: activeEvents.has('On Message'),
         isFirstMessage: activeEvents.has('On First Message'),
-        isSubscription: activeEvents.has('On Subscription'),
-        isRaid: activeEvents.has('On Raid'),
-        isCheer: activeEvents.has('On Cheer'),
-        isFollow: activeEvents.has('On Follow'),
         isJoin: activeEvents.has('On Join'),
         isPart: activeEvents.has('On Part')
     };
 
-    const channelCommands = commandsDB.filter(c => c.channelId === channelOwnerId && c.enabled);
+    // Find Command in Memory
+    const channelCommands = commandsDB.filter(c => String(c.channelId) === String(channelOwnerId) && c.enabled);
+    
+    if (IS_DEV) {
+        // console.log(`[Bot] Checking triggers: "${triggerWord}" | Active Cmds: ${channelCommands.length}`);
+    }
+
     const cmd = channelCommands.find(c => {
         const triggers = (c.rootAction.settings.triggers || '').split(',').map(t => t.trim().toLowerCase());
         const events = c.rootAction.settings.eventTriggers || [];
-        return (!forcedEventType && triggers.includes(triggerWord)) || events.some(evt => activeEvents.has(evt));
+        
+        // FIX: Allow trigger match if forcedEventType is CHAT or null
+        const canTrigger = !forcedEventType || forcedEventType === 'CHAT';
+        const matchTrigger = canTrigger && triggers.includes(triggerWord);
+        const matchEvent = events.some(evt => activeEvents.has(evt));
+        
+        return matchTrigger || matchEvent;
     });
 
     if (cmd) {
-        log('Exec', `Running ${cmd.name} in #${channel} [Trigger: ${triggerWord}]`);
-        const args = forcedEventType ? [] : parts.slice(1);
+        log('Exec', `Running ${cmd.name} in #${channel} (Trigger: ${triggerWord})`);
+        const args = forcedEventType && forcedEventType !== 'CHAT' ? [] : parts.slice(1);
         
-        const allCommands = channelCommands
-            .filter(c => c.enabled)
-            .map(c => c.rootAction.settings.triggers?.split(',')[0]?.trim())
-            .filter(Boolean)
-            .join(', ');
-
         try {
             const execId = crypto.randomUUID();
+            const allCmdsStr = channelCommands
+                .filter(c => c.enabled)
+                .map(c => c.rootAction.settings.triggers?.split(',')[0])
+                .filter(Boolean)
+                .join(', ');
+
             await executor.run(
                 cmd, fullUser, 
                 { isModerator: user.isMod, isBroadcaster: user.isBroadcaster, isVip: user.isVip, isSubscriber: user.isSubscriber }, 
@@ -384,9 +472,10 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
                 execId,
                 null,
                 eventData,
-                { all_commands: allCommands }
+                { all_commands: allCmdsStr }
             );
             
+            // Broadcast points update after run
             const pointsMap = {};
             const prefix = `${channelOwnerId}:`;
             for (const [key, val] of pointsDB.entries()) {
@@ -395,195 +484,94 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
                 }
             }
             broadcastToUser(channelOwnerId, { type: 'POINTS_UPDATE', payload: pointsMap });
-        } catch (e) { console.error("Exec Error", e); }
+
+        } catch (e) { 
+            console.error("Exec Error", e); 
+        }
     }
 };
 
 export const checkStreamsAndManageConnection = async () => {
-    if (!botClient || !botClient.isConnected) return;
-
-    if (IS_DEV) console.log('[Bot] Checking stream status and managing connections...');
-
-    // 1. Get all channels settings
+    if (!botClient || !botClient.isConnected || !botClient.isIrcConnected) {
+        return;
+    }
+    
     const settings = await ChannelSettingsModel.find({});
-    
-    // We need a list of user IDs to check stream status.
-    const candidates = [];
-    const settingsMap = new Map();
-    const activeAuths = [];
 
-    // Map settings
+    // Create a Set of desired channels
+    const desiredChannels = new Set();
+    
     for (const s of settings) {
-        settingsMap.set(s.channelId, s);
-        // Include ALL channels from DB, regardless of enabled state, so we can PART them if needed.
-        candidates.push(s.channelId);
-    }
-    
-    // Also include manually authenticated users if they don't have settings yet (implied enabled)
-    const auths = await AuthModel.find({ isBot: false });
-    for (const a of auths) {
-        activeAuths.push(a);
-        if (!settingsMap.has(a.userId)) {
-             candidates.push(a.userId);
+        if (s.botEnabled) {
+             let lower = (s.channelName || '').toLowerCase();
+             if (!lower && usersDB[s.channelId]) {
+                 lower = usersDB[s.channelId].username.toLowerCase();
+             }
+             if (!lower) continue;
+             
+             const isLocked = s.isLocked || s.serverLocked;
+             const isLive = cachedLiveStreams.has(lower);
+             
+             if (isLocked || isLive) {
+                 desiredChannels.add(lower);
+             }
         }
     }
     
-    // Also include currently joined channels to cleanup zombies
-    if (botClient && botClient.channels) {
-        // We need to resolve channel names to IDs for API lookup if possible, or just skip API lookup for them if we can't.
-        // For simplicity, we mostly rely on DB list for API check. 
-        // But if we are joined to "ninja" and "ninja" is not in DB, we should part it.
-        // Handled in step 3 (cleanup).
-    }
-
-    // Deduplicate
-    const uniqueIds = [...new Set(candidates)];
-    if (uniqueIds.length === 0) return;
-
-    // 2. Fetch Live Status
-    const token = await authManager.getAppAccessToken();
-    if (!token) {
-        console.error("Could not get app token for stream check");
-        return;
-    }
-
-    const liveStreams = new Set();
-    let apiFetchFailed = false;
-    
-    // Chunk requests
-    const chunkSize = 100;
-    for (let i = 0; i < uniqueIds.length; i += chunkSize) {
-        const chunk = uniqueIds.slice(i, i + chunkSize);
-        const query = chunk.map(id => `user_id=${id}`).join('&');
-        try {
-            const res = await fetch(`https://api.twitch.tv/helix/streams?${query}`, {
-                headers: {
-                    'Client-ID': process.env.TWITCH_CLIENT_ID,
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                if (data.data) {
-                    data.data.forEach(s => liveStreams.add(s.user_id));
-                    data.data.forEach(s => cachedLiveStreams.add(s.user_login.toLowerCase())); // Update global cache
-                }
-            } else {
-                console.warn(`Stream check API failed: ${res.status}`);
-                apiFetchFailed = true;
-            }
-        } catch (e) {
-            console.error("Stream check failed", e);
-            apiFetchFailed = true;
-        }
-    }
-
-    // CRITICAL: If API fetch fails, DO NOT proceed to part channels based on empty list.
-    if (apiFetchFailed) {
-        console.warn("Skipping connection management due to API failure.");
-        return;
-    }
-
-    // 3. Reconcile
-    const validUsernames = new Set();
-
-    for (const userId of uniqueIds) {
-        const setting = settingsMap.get(userId) || { botEnabled: true, isLocked: false }; // Default defaults for raw auths
-        
-        // Find username
-        let username = setting.channelName;
-        if (!username) {
-            const auth = activeAuths.find(a => a.userId === userId);
-            username = auth ? auth.username : null;
-        }
-
-        if (!username) continue;
-        
-        validUsernames.add(username.toLowerCase());
-
-        const isLive = liveStreams.has(userId);
-        const isLocked = setting.isLocked || setting.serverLocked;
-        const isEnabled = setting.botEnabled;
-
-        let shouldJoin = false;
-        let reason = '';
-
-        if (!isEnabled) {
-            shouldJoin = false;
-            reason = 'Bot Disabled';
-        } else if (isLocked) {
-            shouldJoin = true;
-            reason = 'Locked (Always On)';
-        } else if (isLive) {
-            shouldJoin = true;
-            reason = 'Stream Live';
-        } else {
-            shouldJoin = false;
-            reason = 'Stream Offline & Unlocked';
-        }
-
-        const isAlreadyJoined = botClient.isJoined(username);
-
-        // Only act if state mismatches
-        if (shouldJoin && !isAlreadyJoined) {
-             console.log(`[Bot] Joining #${username} (${reason})`);
-             botClient.join(username);
-        } else if (!shouldJoin && isAlreadyJoined) {
-             console.log(`[Bot] Parting #${username} (${reason})`);
-             botClient.part(username);
+    // Sync with botClient
+    for (const ch of desiredChannels) {
+        if (!botClient.isJoined(ch)) {
+            if (IS_DEV) console.log(`[Bot] Joining missing channel: ${ch}`);
+            botClient.join(ch);
         }
     }
     
-    // 4. Cleanup Zombies (Channels joined but not in DB)
-    if (botClient && botClient.channels) {
-        for (const ch of botClient.channels) {
-            if (!validUsernames.has(ch.toLowerCase())) {
-                console.log(`[Bot] Parting zombie channel #${ch}`);
-                botClient.part(ch);
-            }
+    for (const joined of botClient.channels) {
+        const setting = settings.find(s => {
+             const name = s.channelName || (usersDB[s.channelId]?.username || '');
+             return name.toLowerCase() === joined;
+        });
+
+        if (setting && !desiredChannels.has(joined)) {
+            if (IS_DEV) console.log(`[Bot] Parting inactive channel: ${joined}`);
+            botClient.part(joined);
         }
     }
 };
 
-// Syncs all active channels to the Gateway (joins chat)
 export const syncGatewayChannels = async () => {
-    console.log('[Bot] Initial Channel Sync...');
-    await checkStreamsAndManageConnection();
-};
-
-export const trackOnlineTime = async () => {
-    if (cachedLiveStreams.size === 0) return;
-    try {
-        const now = Date.now();
-        let updated = 0;
-        const bulkOps = [];
-
-        for (const channelName of cachedLiveStreams) {
-            Object.values(usersDB).forEach(u => {
-                if (u.lastActive && (now - u.lastActive < 600000)) {
-                    u.onlineMinutes = (u.onlineMinutes || 0) + 1;
-                    updated++;
-                    bulkOps.push({ updateOne: { filter: { id: u.id }, update: { $set: { onlineMinutes: u.onlineMinutes } } } });
-                }
-            });
-        }
-
-        if (updated > 0 && mongoose.connection.readyState === 1) {
-            await UserModel.bulkWrite(bulkOps);
-        }
-    } catch(e) { console.error("Online Tracker Error", e); }
+    if (IS_DEV) console.log('[Bot] Initial Channel Sync...');
+    setTimeout(() => {
+        checkStreamsAndManageConnection();
+    }, 1000);
 };
 
 export function initBot(botAuth) {
     if (botClient) botClient.disconnect();
+    
+    // Initialize GatewayClient with callbacks to avoid circular imports
     const client = new GatewayClient({
         onOpen: () => {
-            syncGatewayChannels();
+            if (client.isIrcConnected) {
+                syncGatewayChannels();
+            } else {
+                if (IS_DEV) console.log('[Bot] Gateway connected but IRC pending. Waiting for signal...');
+            }
+        },
+        onChat: handleBotMessage,
+        onSystemLog: (msg) => {
+            if (typeof msg === 'string' && msg.includes('🟢 Joined IRC: #')) {
+                const channelName = msg.split('#')[1].trim();
+                if (channelName) {
+                    announceChannelState(channelName);
+                }
+            }
         }
     });
+    
     client.connect();
     setBotClient(client);
 
-    // Start Polling
-    setInterval(checkStreamsAndManageConnection, 120000); // 2 minutes
+    // Poll streams
+    setInterval(checkStreamsAndManageConnection, 120000); 
 }

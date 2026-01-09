@@ -291,27 +291,35 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
 
   // Helper to determine status
   const getStatus = (ch: Channel) => {
+      // 1. Server Mode Status Logic
+      if (ch.mode === 'server') {
+          // Priority 1: Server says it's joined
+          if (ch.serverJoined) {
+              return { label: 'JOINED', color: 'text-emerald-400', bg: 'bg-emerald-500', border: 'border-emerald-500' };
+          }
+          // Priority 2: Disabled explicitly
+          if (ch.botEnabled === false) {
+              return { label: 'OFF', color: 'text-red-400', bg: 'bg-red-600', border: 'border-slate-700' };
+          }
+          // Priority 3: Enabled but not joined (Waiting for stream online or reconnect)
+          return { label: 'WAITING', color: 'text-amber-400', bg: 'bg-amber-500', border: 'border-amber-500' };
+      }
+
+      // 2. Local/Client Mode Logic
       const name = ch.name.toLowerCase();
       
-      // Determine if effectively joined (IRC/Server confirmation)
-      const isActualJoined = actualJoinedChannels.has(name) || (joinedChannels.has(name) && ch.mode !== 'server' && actualJoinedChannels.has(name)); 
+      const isActualJoined = actualJoinedChannels.has(name) || (joinedChannels.has(name) && actualJoinedChannels.has(name)); 
       
-      // Determine user intent
-      // FIX: Consider isLocked as explicit intent to join for local channels
-      const isIntentOn = ch.mode === 'server' 
-          ? (ch.botEnabled !== false) 
-          : (joinedChannels.has(name) || !!ch.isLocked);
+      const isIntentOn = joinedChannels.has(name) || !!ch.isLocked;
 
       if (isActualJoined) {
           return { label: 'JOINED', color: 'text-emerald-400', bg: 'bg-emerald-500', border: 'border-emerald-500' };
       }
       
       if (isIntentOn) {
-          // Wanted to join, but not joined (Offline or connecting) -> Waiting (Yellow)
           return { label: 'WAITING', color: 'text-amber-400', bg: 'bg-amber-500', border: 'border-amber-500' };
       }
       
-      // Off -> Red
       return { label: 'OFF', color: 'text-red-400', bg: 'bg-red-600', border: 'border-slate-700' };
   };
 
@@ -419,7 +427,6 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                         const isDropTarget = dragOverChannelId === ch.id && draggedChannelId !== ch.id;
                         
                         const status = getStatus(ch);
-                        // FIX: Intent logic duplication
                         const isPowerOn = ch.mode === 'server' 
                             ? (ch.botEnabled !== false) 
                             : (joinedChannels.has(ch.name.toLowerCase()) || !!ch.isLocked);
@@ -432,6 +439,12 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                         // Mode Styles
                         const modeStyle = getChannelTypeStyle(ch.mode, ch.provider);
 
+                        // --- Server Status Split ---
+                        const isServerMode = ch.mode === 'server';
+                        const serverJoined = ch.serverJoined;
+                        const botEnabled = ch.botEnabled !== false;
+                        const localJoined = actualJoinedChannels.has(ch.name.toLowerCase());
+                        
                         return (
                             <div 
                                 key={ch.id}
@@ -482,9 +495,20 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
 
                                 {/* Col 5: Status Badge (Fixed Width, Aligned) */}
                                 <div className="flex justify-center">
-                                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider w-full text-center ${status.bg} text-[#1a1f29]`}>
-                                        {status.label}
-                                    </span>
+                                    {isServerMode ? (
+                                        <div className="flex gap-1">
+                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider text-center ${serverJoined ? 'bg-emerald-500 text-[#1a1f29]' : (botEnabled ? 'bg-amber-500 text-black' : 'bg-red-600 text-white')}`}>
+                                                BOT
+                                            </span>
+                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider text-center ${localJoined ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-400'}`}>
+                                                VIEW
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider w-full text-center ${status.bg} text-[#1a1f29]`}>
+                                            {status.label}
+                                        </span>
+                                    )}
                                 </div>
 
                                 {/* Col 6: Actions */}
@@ -564,6 +588,12 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                     const isActive = activeChannelId === displayChannel.id;
                     const isLocked = !!displayChannel.isLocked;
                     const status = getStatus(displayChannel);
+
+                    // --- Server Status Split ---
+                    const isServerMode = displayChannel.mode === 'server';
+                    const serverJoined = displayChannel.serverJoined;
+                    const botEnabled = displayChannel.botEnabled !== false;
+                    const localJoined = actualJoinedChannels.has(displayChannel.name.toLowerCase());
                     
                     return (
                         <div key={group[0].name + groupIndex} className="relative group/item" style={{ zIndex: 20 - groupIndex }}>
@@ -582,7 +612,16 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                                 <div className="w-7 h-7 flex items-center justify-center shrink-0 relative">
                                     <i className={`fab fa-${displayChannel.provider} text-lg`}></i>
                                     {/* Status Dot Overlay */}
-                                    <div className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#141721] ${status.bg}`}></div>
+                                    {isServerMode ? (
+                                        <>
+                                            {/* Server Bot Status (Top Right) */}
+                                            <div title={`Server Bot: ${serverJoined ? 'Joined' : 'Disconnected'}`} className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#141721] ${serverJoined ? 'bg-emerald-500' : (botEnabled ? 'bg-amber-500' : 'bg-red-500')}`}></div>
+                                            {/* Local Client Status (Bottom Right) */}
+                                            <div title={`Local Chat: ${localJoined ? 'Connected' : 'Disconnected'}`} className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#141721] ${localJoined ? 'bg-indigo-500' : 'bg-slate-600'}`}></div>
+                                        </>
+                                    ) : (
+                                        <div className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#141721] ${status.bg}`}></div>
+                                    )}
                                     {isActive && isLocked && <div className="absolute -bottom-1 -right-1 text-[8px] bg-amber-500 text-black px-1 rounded font-black shadow-sm">LOCK</div>}
                                 </div>
                                 

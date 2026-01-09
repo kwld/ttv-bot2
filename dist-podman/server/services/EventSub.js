@@ -5,6 +5,8 @@ import { AuthModel, ChannelSettingsModel } from '../db.js';
 import { usersDB, commandsDB, userSockets, botClient, cachedLiveStreams } from '../context.js';
 import { broadcastToUser } from '../socket.js';
 
+const IS_DEV = process.env.DEV === 'true';
+
 export class EventSubService {
     static executorFactory = null;
 
@@ -37,7 +39,7 @@ export class EventSubService {
         }
 
         if (type === 'stream.online') {
-            console.log(`[Gateway] [Online] ${broadcasterName} is now LIVE!`);
+            if (IS_DEV) console.log(`[Gateway] [Online] ${broadcasterName} is now LIVE!`);
             if (broadcasterName) cachedLiveStreams.add(broadcasterName.toLowerCase());
             
             // Join Chat (Live override)
@@ -51,7 +53,7 @@ export class EventSubService {
         }
 
         if (type === 'stream.offline') {
-            console.log(`[Gateway] [Offline] ${broadcasterName} went offline.`);
+            if (IS_DEV) console.log(`[Gateway] [Offline] ${broadcasterName} went offline.`);
             if (broadcasterName) cachedLiveStreams.delete(broadcasterName.toLowerCase());
             
             // Part Chat ONLY IF NOT LOCKED
@@ -133,7 +135,7 @@ export class EventSubService {
             const userInput = event.user_input || '';
             const cost = event.reward.cost;
             
-            console.log(`[Gateway] [Points] ${user.displayName} redeemed "${rewardTitle}" (${cost})`);
+            if (IS_DEV) console.log(`[Gateway] [Points] ${user.displayName} redeemed "${rewardTitle}" (${cost})`);
 
             broadcastToUser(broadcasterId, { 
                 type: 'CHAT_MESSAGE', 
@@ -235,7 +237,7 @@ export class EventSubService {
 
         // --- FOLLOW ---
         if (type === 'channel.follow') {
-            console.log(`[Gateway] [Follow] ${user.displayName} followed ${broadcasterName}`);
+            if (IS_DEV) console.log(`[Gateway] [Follow] ${user.displayName} followed ${broadcasterName}`);
             await runCommand(['On Follow'], [], { 
                 isFollow: true,
                 followedAt: event.followed_at

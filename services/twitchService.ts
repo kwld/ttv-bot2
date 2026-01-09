@@ -1,5 +1,5 @@
 
-import { TwitchIRCClient } from '../server/services/TwitchIRC.js';
+import { TwitchIRCClient } from '../twitch-gateway/server/TwitchIRC.js';
 import { User, Provider } from '../types';
 
 export interface TwitchMessage {

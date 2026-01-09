@@ -89,53 +89,28 @@ export const useTwitchClient = ({
         try {
             // 1. Identify "Relevant" Channels
             const uniqueChannels = new Map<string, { isPowerOn: boolean, isLocked: boolean, id: string }>();
-            const allTwitchChannels = channelsRef.current.filter(c => c.provider === 'twitch');
+            
+            // Allow connecting to ALL configured channels (Server AND Local) via local client
+            // This enables "Client Mode" behavior (viewing/typing) even for Server-managed channels
+            // FIX: Exclude 'server' mode channels from local client handling to prevent duplicate messages
+            const relevantTwitchChannels = channelsRef.current.filter(c => c.provider === 'twitch' && c.mode !== 'server');
 
-            // NEW: Identify channels that have a local client configuration
-            // If a channel has a 'serverless' mode, that instance takes precedence for local IRC connection logic
-            const clientModeNames = new Set(
-                allTwitchChannels
-                    .filter(c => c.mode === 'serverless')
-                    .map(c => c.name.toLowerCase())
-            );
-
-            allTwitchChannels.forEach(c => {
+            relevantTwitchChannels.forEach(c => {
                 const lower = c.name.toLowerCase();
-                
-                // CONFLICT RESOLUTION:
-                // If this is a server channel, AND there is a client (serverless) channel with the same name...
-                // We IGNORE the server channel for local IRC connection logic.
-                if (c.mode === 'server' && clientModeNames.has(lower)) {
-                    return;
-                }
-
                 const existing = uniqueChannels.get(lower);
                 
-                let isPowerOn = false;
-                if (c.mode === 'server') {
-                    isPowerOn = c.botEnabled !== false;
-                } else {
-                    isPowerOn = joinedTwitchChannelsRef.current.has(lower);
-                }
+                const isPowerOn = joinedTwitchChannelsRef.current.has(lower);
+                // Respect both local lock and server-side lock intent
+                const isLocked = !!c.isLocked || !!c.clientLocked;
 
-                // FIX: Correct lock precedence.
-                // For serverless/testing, we rely on isLocked. 
-                // For server mode, we prefer clientLocked if set, else fallback to isLocked.
-                let thisChannelLocked = !!c.isLocked;
-                if (c.mode === 'server' && c.clientLocked !== undefined) {
-                    thisChannelLocked = !!c.clientLocked;
-                }
-
-                const mergedLocked = existing ? (existing.isLocked || thisChannelLocked) : thisChannelLocked;
-                const finalId = (existing && c.mode !== 'server') ? existing.id : c.id;
-                
                 // Effective Power On: If locked, force it "on" even if user didn't click connect
-                const mergedPower = (existing ? (existing.isPowerOn || isPowerOn) : isPowerOn) || mergedLocked;
+                const mergedPower = (existing ? (existing.isPowerOn || isPowerOn) : isPowerOn) || isLocked;
+                const mergedLocked = (existing ? (existing.isLocked || isLocked) : isLocked);
 
                 uniqueChannels.set(lower, {
                     isPowerOn: mergedPower,
                     isLocked: mergedLocked,
-                    id: finalId
+                    id: c.id
                 });
             });
             
@@ -227,29 +202,41 @@ export const useTwitchClient = ({
             onMessage: (msg: TwitchMessage) => {
                 const lowerChannel = msg.channel.toLowerCase();
                 // Ensure channel is marked as joined if we receive message
-                setActualJoinedChannels(prev => prev.has(lowerChannel) ? prev : new Set(prev).add(lowerChannel));
-                
-                const ch = channelsRef.current.find(c => c.name.toLowerCase() === lowerChannel);
-                const resolvedChannelId = ch ? ch.id : 'lookup_needed';
-
-                handleIncomingMessageRef.current({ 
-                    ...msg,
-                    provider: 'twitch', 
-                    channelId: resolvedChannelId, 
-                    channelName: msg.channel,
-                    isLive: true, 
-                    fromTwitchClient: true
+                // Refactor: Use explicit state update to avoid potential type issues with Set.add return value
+                setActualJoinedChannels(prev => {
+                    if (prev.has(lowerChannel)) return prev;
+                    const next = new Set(prev);
+                    next.add(lowerChannel);
+                    return next;
                 });
+                
+                // Find matching channel (ANY mode now)
+                const ch = channelsRef.current.find(c => c.name.toLowerCase() === lowerChannel);
+                
+                if (ch) {
+                    const resolvedChannelId = ch.id;
+                    handleIncomingMessageRef.current({ 
+                        ...msg,
+                        provider: 'twitch', 
+                        channelId: resolvedChannelId, 
+                        channelName: msg.channel,
+                        isLive: true, 
+                        fromTwitchClient: true
+                    });
+                }
             },
             onJoin: (channel: string) => {
                 const lowerName = channel.toLowerCase();
                 setActualJoinedChannels(prev => {
                     if (prev.has(lowerName)) return prev;
                     safeLog(`JOIN:${lowerName}`, () => {
+                        // Notify for any channel type
                         const ch = channelsRef.current.find(c => c.name.toLowerCase() === lowerName);
-                        if (ch) addBotMessage(`🟢 JOINED: #${channel}`, 'twitch', ch.id, false, true, { level: 'success' });
+                        if (ch) addBotMessage(`🟢 JOINED (Local): #${channel}`, 'twitch', ch.id, false, true, { level: 'success' });
                     });
-                    return new Set(prev).add(lowerName);
+                    const next = new Set(prev);
+                    next.add(lowerName);
+                    return next;
                 });
             },
             onPart: (channel: string) => {
@@ -258,14 +245,20 @@ export const useTwitchClient = ({
                     if (!prev.has(lowerName)) return prev;
                     safeLog(`PART:${lowerName}`, () => {
                         const ch = channelsRef.current.find(c => c.name.toLowerCase() === lowerName);
-                        if (ch) addBotMessage(`🔴 PARTED: #${channel}`, 'twitch', ch.id, false, true, { level: 'warning' });
+                        if (ch) addBotMessage(`🔴 PARTED (Local): #${channel}`, 'twitch', ch.id, false, true, { level: 'warning' });
                     });
                     const n = new Set(prev); n.delete(lowerName); return n; 
                 });
             },
             onUserJoin: (channel: string, username: string) => {
                 const lowerChannel = channel.toLowerCase();
-                setActualJoinedChannels(prev => prev.has(lowerChannel) ? prev : new Set(prev).add(lowerChannel));
+                // Refactor: Use explicit state update
+                setActualJoinedChannels(prev => {
+                    if (prev.has(lowerChannel)) return prev;
+                    const next = new Set(prev);
+                    next.add(lowerChannel);
+                    return next;
+                });
                 
                 if (authenticatedUserRef.current && username.toLowerCase() === authenticatedUserRef.current.username.toLowerCase()) return;
                 const lower = channel.toLowerCase();
@@ -284,10 +277,15 @@ export const useTwitchClient = ({
             },
             onUserNotice: (notice: TwitchUserNotice) => {
                 const lowerChannel = notice.channel.toLowerCase();
-                setActualJoinedChannels(prev => prev.has(lowerChannel) ? prev : new Set(prev).add(lowerChannel));
+                setActualJoinedChannels(prev => {
+                    if (prev.has(lowerChannel)) return prev;
+                    const next = new Set(prev);
+                    next.add(lowerChannel);
+                    return next;
+                });
                 const ch = channelsRef.current.find(c => c.name.toLowerCase() === lowerChannel);
                 if (ch) {
-                    const msgId = (notice.tags['msg-id'] as string) || 'NOTICE';
+                    const msgId = (notice.tags['msg-id'] as unknown as string) || 'NOTICE';
                     addBotMessage(`[${msgId.toUpperCase()}] ${notice.message || ''}`, 'twitch', ch.id, false, true, { level: 'info' });
                 }
             },

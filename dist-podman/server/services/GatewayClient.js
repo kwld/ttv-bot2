@@ -1,16 +1,20 @@
 
 import WebSocket from 'ws';
-import { handleBotMessage } from '../bot.js';
 import { EventSubService } from './EventSub.js';
+
+const IS_DEV = process.env.DEV === 'true';
 
 export class GatewayClient {
     constructor(options = {}) {
         this.url = options.url || process.env.GATEWAY_URL || 'ws://localhost:8080';
         this.token = options.token || process.env.GATEWAY_TOKEN || '';
         this.onOpen = options.onOpen; // Callback when connection opens
+        this.onChat = options.onChat; // Callback for chat messages
+        this.onSystemLog = options.onSystemLog; // Callback for system logs (joins, etc)
         
         this.ws = null;
         this.isConnected = false;
+        this.isIrcConnected = false; // Track IRC status from Gateway
         this.reconnectTimer = null;
         this.channels = new Set(); // Track joined channels for UI compatibility
         
@@ -32,21 +36,13 @@ export class GatewayClient {
         // Clean up previous attempts
         this.cleanup();
 
-        console.log(`[Gateway] Connecting to ${this.url}...`);
+        if (IS_DEV) console.log(`[Gateway] Connecting to ${this.url}...`);
         this.ws = new WebSocket(`${this.url}?token=${this.token}`);
 
         this.ws.on('open', () => {
-            console.log('[Gateway] Connected.');
+            if (IS_DEV) console.log('[Gateway] Socket Open. Waiting for Handshake...');
             this.isConnected = true;
             this.startHeartbeat();
-            
-            // Re-sync local channel state
-            this.channels.clear(); 
-
-            if (this.onOpen) this.onOpen();
-            
-            // Flush any queued commands
-            this.flushQueue();
         });
 
         this.ws.on('message', (data) => {
@@ -63,7 +59,7 @@ export class GatewayClient {
         });
 
         this.ws.on('close', () => {
-            if (this.isConnected) {
+            if (this.isConnected && IS_DEV) {
                 console.log('[Gateway] Disconnected.');
             }
             this.handleDisconnect();
@@ -77,12 +73,13 @@ export class GatewayClient {
 
     handleDisconnect() {
         this.isConnected = false;
+        this.isIrcConnected = false;
         this.cleanup(); // Stop heartbeats
         
         // Note: We do NOT clear this.queue here, we want to keep commands for when we reconnect
         
         if (!this.reconnectTimer) {
-            console.log('[Gateway] Reconnecting in 5s...');
+            if (IS_DEV) console.log('[Gateway] Reconnecting in 5s...');
             this.reconnectTimer = setTimeout(() => {
                 this.reconnectTimer = null;
                 this.connect();
@@ -130,16 +127,69 @@ export class GatewayClient {
     }
 
     handlePayload(payload) {
+        if (IS_DEV) {
+             // Avoid spamming PONG log, log everything else
+             if (payload.type !== 'PONG') {
+                 // console.log(`[GatewayClient] Received Payload: ${payload.type}`);
+             }
+        }
+
         const { type, event, subscription, message } = payload;
+
+        // --- HANDSHAKE SUCCESS ---
+        if (type === 'WELCOME') {
+            if (IS_DEV) console.log('[Gateway] Handshake Successful.');
+            
+            // Check IRC Status from Handshake
+            if (payload.status && payload.status.ircConnected) {
+                this.isIrcConnected = true;
+                if (IS_DEV) console.log('[Gateway] IRC is Ready.');
+            } else {
+                if (IS_DEV) console.log('[Gateway] Waiting for IRC Connection...');
+            }
+
+            // Sync joined channels if provided
+            this.channels.clear(); 
+            if (payload.status && payload.status.joinedChannels) {
+                payload.status.joinedChannels.forEach(c => this.channels.add(c.toLowerCase()));
+                if (IS_DEV) console.log(`[Gateway] Synced ${this.channels.size} joined channels.`);
+            }
+
+            // Trigger Open Callback if IRC is ready, otherwise wait for status update
+            if (this.isIrcConnected && this.onOpen) {
+                this.onOpen();
+            }
+            
+            // Flush any queued commands
+            this.flushQueue();
+            return;
+        }
+
+        // --- STATUS UPDATE ---
+        if (type === 'GATEWAY_STATUS') {
+            const wasReady = this.isIrcConnected;
+            this.isIrcConnected = payload.ircConnected;
+            if (IS_DEV) console.log(`[Gateway] Status Update. IRC Ready: ${this.isIrcConnected}`);
+            
+            // If we just became ready, trigger open/sync logic
+            if (!wasReady && this.isIrcConnected && this.onOpen) {
+                this.onOpen(); 
+            }
+            return;
+        }
 
         // Handle direct system logs from Gateway (e.g., IRC Joins)
         if (type === 'SYSTEM_LOG' && message) {
-            console.log(`[Gateway] ${message}`);
+            if (IS_DEV) console.log(`[Gateway] ${message}`);
+            // Pass to bot callback if provided
+            if (this.onSystemLog) {
+                this.onSystemLog(message);
+            }
             return;
         }
 
         // Ignore system messages or keepalives that lack event data
-        if (!event && type !== 'KEEP_ALIVE' && type !== 'WELCOME') {
+        if (!event && type !== 'KEEP_ALIVE') {
             return; 
         }
 
@@ -165,6 +215,11 @@ export class GatewayClient {
     }
 
     handleChatMessage(event) {
+        // DUMP FULL EVENT AS REQUESTED
+        if (IS_DEV) {
+             console.log('[GatewayClient] RAW CHAT OBJECT:', JSON.stringify(event, null, 2));
+        }
+
         const badges = {};
         if (event.badges) {
             event.badges.forEach(b => {
@@ -176,9 +231,22 @@ export class GatewayClient {
         const isBroadcaster = badges.broadcaster === '1' || event.chatter_user_id === event.broadcaster_user_id;
         const isSub = !!badges.subscriber || !!badges.founder;
         const isVip = !!badges.vip;
+        
+        // Resolve IDs robustly using the raw 1:1 object if present
+        let channelId = event.broadcaster_user_id;
+        if (!channelId && event.raw_irc && event.raw_irc.tags) {
+            channelId = event.raw_irc.tags['room-id'];
+        }
+
+        if (!channelId) {
+            console.error("[GatewayClient] CRITICAL: Dropping chat message due to missing Channel ID (room-id).", event);
+            return;
+        }
 
         const internalEvent = {
             channel: event.broadcaster_user_login,
+            // CRITICAL: Pass the ID explicitly to ensure matching against the DB
+            channelId: channelId,
             message: event.message?.text || '',
             user: {
                 id: event.chatter_user_id,
@@ -195,10 +263,17 @@ export class GatewayClient {
             tags: {
                 id: event.message_id,
                 'msg-id': event.message_type === 'channel_points_highlighted' ? 'highlighted-message' : undefined
-            }
+            },
+            is_self: event.is_self // IMPORTANT: Forward self flag
         };
 
-        handleBotMessage(internalEvent, 'CHAT');
+        // Pass to the callback provided in constructor (avoids circular dep)
+        if (this.onChat) {
+            if (IS_DEV) console.log(`[GatewayClient] Passing message to Bot Callback: ${internalEvent.message}`);
+            this.onChat(internalEvent, 'CHAT');
+        } else {
+            console.warn('[GatewayClient] No chat handler registered! Message dropped.');
+        }
     }
 
     // --- Actions & Queue ---
@@ -207,11 +282,11 @@ export class GatewayClient {
         if (this.isFlushing || this.queue.length === 0) return;
         this.isFlushing = true;
         
-        console.log(`[Gateway] Flushing ${this.queue.length} queued commands...`);
+        if (IS_DEV) console.log(`[Gateway] Flushing ${this.queue.length} queued commands...`);
 
         while (this.queue.length > 0) {
             if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-                console.log('[Gateway] Connection lost during flush. Pausing.');
+                if (IS_DEV) console.log('[Gateway] Connection lost during flush. Pausing.');
                 break;
             }
 
@@ -251,7 +326,7 @@ export class GatewayClient {
     join(channel) {
         const lower = channel.toLowerCase();
         if (this.channels.has(lower)) return;
-        console.log(`[GatewayClient] Requesting JOIN: ${channel}`);
+        if (IS_DEV) console.log(`[GatewayClient] Requesting JOIN: ${channel}`);
         this.send('JOIN', { channel });
         this.channels.add(lower);
     }
@@ -259,7 +334,7 @@ export class GatewayClient {
     part(channel) {
         const lower = channel.toLowerCase();
         if (!this.channels.has(lower)) return;
-        console.log(`[GatewayClient] Requesting PART: ${channel}`);
+        if (IS_DEV) console.log(`[GatewayClient] Requesting PART: ${channel}`);
         this.send('PART', { channel });
         this.channels.delete(lower);
     }

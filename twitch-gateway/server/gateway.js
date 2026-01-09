@@ -1,10 +1,15 @@
 
-const { WebSocketServer } = require('ws');
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
+import { WebSocketServer } from 'ws';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
 
-class Gateway {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const IS_DEV = process.env.DEV === 'true';
+
+export class Gateway {
   constructor(port, botService) {
     this.port = port;
     this.botService = botService;
@@ -38,7 +43,7 @@ class Gateway {
           const data = JSON.parse(fs.readFileSync(configFile, 'utf8'));
           if (data.token) {
             this.token = data.token;
-            console.log('[Gateway] Loaded existing Access Token from file.');
+            if (IS_DEV) console.log('[Gateway] Loaded existing Access Token from file.');
           }
         }
       } catch (err) {
@@ -56,7 +61,7 @@ class Gateway {
         }
       }
     } else {
-        console.log('[Gateway] Using Access Token from Environment Variable.');
+        if (IS_DEV) console.log('[Gateway] Using Access Token from Environment Variable.');
     }
     
     const masked = this.token ? `${this.token.substring(0, 6)}...` : 'NONE';
@@ -83,7 +88,7 @@ class Gateway {
         return;
       }
 
-      console.log('[Gateway] Trusted External App Connected');
+      if (IS_DEV) console.log('[Gateway] Trusted External App Connected');
       this.clients.add(ws);
 
       ws.on('message', (message) => {
@@ -99,10 +104,17 @@ class Gateway {
           this.clients.delete(ws);
       });
 
+      const isIrcConnected = this.botService && this.botService.client && this.botService.client.isConnected;
+      const joinedChannels = isIrcConnected ? this.botService.getJoinedChannels() : [];
+
       ws.send(JSON.stringify({ 
           type: 'WELCOME', 
           message: 'Connected to Twitch Gateway', 
-          authenticated: true 
+          authenticated: true,
+          status: {
+              ircConnected: isIrcConnected,
+              joinedChannels: joinedChannels
+          }
       }));
     });
 
@@ -155,5 +167,3 @@ class Gateway {
     });
   }
 }
-
-module.exports = Gateway;

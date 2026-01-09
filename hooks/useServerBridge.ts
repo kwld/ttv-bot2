@@ -52,6 +52,9 @@ export const useServerBridge = ({
     // Track last identity to prevent redundant updates
     const lastIdentityRef = useRef<string | null>(null);
     
+    // Track announced channels to prevent spamming "Connected" messages
+    const announcedChannelsRef = useRef<Set<string>>(new Set());
+    
     // NEW: Unified Process Tracking (Exposed via return)
     const [activeProcesses, setActiveProcesses] = useState<ServerProcess[]>([]);
     const [processHistory, setProcessHistory] = useState<ServerHistoryItem[]>([]);
@@ -63,30 +66,55 @@ export const useServerBridge = ({
     useEffect(() => {
         const normalizedUrl = serverUrl.endsWith('/') ? serverUrl.slice(0, -1) : serverUrl;
 
-        // Check if we need to tear down existing bridge due to URL change
-        if (serverBridgeRef.current) {
-            // If URL matches, just update token if needed and keep alive
-            if (serverBridgeRef.current.getUrl() === normalizedUrl) {
+        // Check if we already have a bridge instance to avoid duplicates (React Strict Mode)
+        if (ServerBridge.instance) {
+            // If URL matches, reuse the existing instance and update its token
+            if (ServerBridge.instance.getUrl() === normalizedUrl) {
+                console.log("[useServerBridge] Reusing existing Server Bridge instance.");
+                serverBridgeRef.current = ServerBridge.instance;
+                
+                if (serverBridgeRef.current.isConnected) {
+                    setIsBridgeConnected(true);
+                }
+                
+                // Ensure token is current
                 if (serverToken !== serverBridgeRef.current.getToken()) {
                      serverBridgeRef.current.updateToken(serverToken);
                 }
+                
+                // Re-bind callbacks because closure scope changes on re-render
+                bindCallbacks(serverBridgeRef.current);
                 return;
+            } else {
+                // URL changed, must tear down old one
+                console.log("[useServerBridge] Server URL changed, disconnecting old bridge...");
+                ServerBridge.instance.disconnect();
+                announcedChannelsRef.current.clear(); // Reset announcements on disconnect
             }
-            
-            console.log("[useServerBridge] Server URL changed, reconnecting...");
-            serverBridgeRef.current.disconnect();
-            serverBridgeRef.current = null;
-            setIsBridgeConnected(false);
         }
         
-        console.log("[App] Initializing Server Bridge with URL:", serverUrl);
+        console.log("[App] Initializing New Server Bridge with URL:", serverUrl);
         const bridge = new ServerBridge(normalizedUrl, serverToken);
         serverBridgeRef.current = bridge;
         
+        bindCallbacks(bridge);
+
+        bridge.connect();
+
+        return () => {
+            // Only disconnect if the component unmounts for real (not just strict mode flicker)
+            // Ideally, we keep the connection alive unless URL changes or user logs out.
+            // But to be safe and clean, we rely on the singleton check above to handle re-mounts.
+        };
+    }, [serverUrl, serverToken]); // Ensure dependencies trigger the logic
+
+    // Helper to bind all callbacks to current scope
+    const bindCallbacks = (bridge: ServerBridge) => {
         bridge.onConnectionChange = (connected) => {
             setIsBridgeConnected(connected);
             if (!connected) {
                 setSaveStatus('error');
+                announcedChannelsRef.current.clear(); // Reset announcements on disconnect
             }
         };
         
@@ -204,8 +232,18 @@ export const useServerBridge = ({
                     textColor: '#ffffff',
                     connectedUser: sc.role === 'owner' ? undefined : undefined,
                     botEnabled: sc.botEnabled,
-                    isLocked: sc.isLocked
+                    isLocked: sc.isLocked,
+                    serverJoined: sc.serverJoined // <--- Map this
                 }));
+
+                // Notify connection success (Anti-Spam)
+                newServerChannels.forEach(ch => {
+                     // Check if this channel wasn't already announced in this session
+                     if (!announcedChannelsRef.current.has(ch.id)) {
+                         addBotMessage(`🔌 Połączono z serwerem. Kanał aktywny: #${ch.name}`, 'twitch', ch.id, false, true, { level: 'success' });
+                         announcedChannelsRef.current.add(ch.id);
+                     }
+                });
 
                 // If existing server channels had custom colors (only if we implemented local color cache), we could merge them here.
                 // For now, simple replacement ensures strict sync.
@@ -266,8 +304,6 @@ export const useServerBridge = ({
             }
         };
 
-        // NEW: Handle update of single channel setting (like bot enabled state)
-        // This is sent back from socket when user toggles the bot status
         bridge.onChannelSettingsUpdate = (data) => {
             const { id, botEnabled, isLocked } = data;
             setChannels(prev => prev.map(c => {
@@ -278,22 +314,19 @@ export const useServerBridge = ({
             }));
         };
 
-        // NEW: Handle AI Context Data response
         bridge.onAiContextsResponse = (data) => {
             if (setAiContexts) {
                 setAiContexts(data);
             }
         };
 
-        // NEW: Handle State Snapshot (On Connect)
         bridge.onServerStateSnapshot = (snapshot) => {
             if (snapshot.active) {
                 setActiveProcesses(snapshot.active);
-                // Also hydrate activeWaitings map for timers
                 const waitings: Record<string, any> = {};
                 snapshot.active.forEach(proc => {
                     if (proc.waitingData) {
-                        waitings[proc.executionId] = { ...proc.waitingData, channelId: activeChannelIdRef.current }; // Inject channel ID here too
+                        waitings[proc.executionId] = { ...proc.waitingData, channelId: activeChannelIdRef.current }; 
                     }
                 });
                 setActiveWaitings(prev => ({ ...prev, ...waitings }));
@@ -303,7 +336,6 @@ export const useServerBridge = ({
             }
         };
 
-        // NEW: Handle Single Process Updates
         bridge.onProcessUpdate = (update) => {
             if (update.type === 'add') {
                 setActiveProcesses(prev => [...prev, update.process]);
@@ -317,7 +349,6 @@ export const useServerBridge = ({
                     }
                     return p;
                 }));
-                // Update Waitings map if included
                 if (update.updates && update.updates.waitingData !== undefined) {
                     if (update.updates.waitingData) {
                         setActiveWaitings(prev => ({ ...prev, [update.executionId]: { ...update.updates.waitingData, channelId: activeChannelIdRef.current } }));
@@ -328,23 +359,10 @@ export const useServerBridge = ({
             }
         };
 
-        // NEW: Handle History Update
         bridge.onHistoryUpdate = (item) => {
             setProcessHistory(prev => [item, ...prev].slice(0, 100));
         };
-
-        bridge.connect();
-
-        return () => {
-            // Disconnect bridge on unmount to prevent multiple connections (especially in multi-tab scenarios)
-            // or when URL changes
-            if (serverBridgeRef.current) {
-                serverBridgeRef.current.disconnect();
-                serverBridgeRef.current = null;
-            }
-            setIsBridgeConnected(false);
-        };
-    }, [serverUrl, serverToken]); // Ensure dependencies trigger the logic
+    };
 
     useEffect(() => {
         if (!serverToken) {
@@ -353,12 +371,14 @@ export const useServerBridge = ({
             }
             setServerIdentity(null);
             lastIdentityRef.current = null;
+            announcedChannelsRef.current.clear(); // Reset announcements on logout
         }
     }, [serverToken]);
 
     const reconnect = useCallback(() => {
         if (serverBridgeRef.current) {
             console.log("[App] Forcing Reconnect...");
+            announcedChannelsRef.current.clear(); // Reset on force reconnect
             serverBridgeRef.current.disconnect();
             setTimeout(() => {
                 if (serverBridgeRef.current) serverBridgeRef.current.connect(); 

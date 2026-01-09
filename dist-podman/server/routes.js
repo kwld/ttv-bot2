@@ -336,9 +336,16 @@ router.post('/api/commands', requireChannelAccess, async (req, res) => {
         const channelId = command.channelId;
         const { _id, ...rest } = command;
         const sanitized = { ...rest, channelId };
+
+        // --- UPDATE IN-MEMORY DB (CRITICAL FOR BOT EXECUTION) ---
         const idx = commandsDB.findIndex(c => c.id === sanitized.id && c.channelId === channelId);
-        if (idx !== -1) commandsDB[idx] = sanitized;
-        else commandsDB.push(sanitized);
+        if (idx !== -1) {
+             commandsDB[idx] = sanitized;
+        } else {
+             commandsDB.push(sanitized);
+        }
+        // ---------------------------------------------------------
+
         await CommandModel.findOneAndUpdate({ id: sanitized.id, channelId }, sanitized, { upsert: true });
         
         broadcastToUser(channelId, { type: 'COMMAND_SAVED', payload: { id: sanitized.id, timestamp: Date.now() } });
@@ -349,10 +356,20 @@ router.post('/api/commands', requireChannelAccess, async (req, res) => {
 router.post('/api/commands/batch', requireChannelAccess, async (req, res) => {
     try {
         const { commands, channelId } = req.body;
+        
+        // --- UPDATE IN-MEMORY DB (CRITICAL FOR BOT EXECUTION) ---
+        // 1. Remove old commands for this channel
         let i = commandsDB.length;
-        while (i--) { if (commandsDB[i].channelId === channelId) commandsDB.splice(i, 1); }
+        while (i--) { 
+            if (commandsDB[i].channelId === channelId) {
+                commandsDB.splice(i, 1); 
+            }
+        }
+        // 2. Add new commands
         const sanitized = commands.map(c => { const { _id, ...rest } = c; return { ...rest, channelId }; });
         commandsDB.push(...sanitized);
+        // ---------------------------------------------------------
+
         await CommandModel.deleteMany({ channelId });
         if (sanitized.length > 0) await CommandModel.insertMany(sanitized);
         
@@ -368,6 +385,11 @@ router.delete('/api/channel', requireChannelAccess, async (req, res) => {
         if (body.channelId && body.channelId !== channelId) return res.status(403).json({ error: 'Cannot delete another channel.' });
         await ChannelSettingsModel.deleteOne({ channelId });
         await CommandModel.deleteMany({ channelId });
+        
+        // Cleanup memory too
+        let i = commandsDB.length;
+        while (i--) { if (commandsDB[i].channelId === channelId) commandsDB.splice(i, 1); }
+        
         checkStreamsAndManageConnection();
         res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -425,6 +447,10 @@ router.post('/api/admin/delete-channel', adminAuth, async (req, res) => {
         await CommandModel.deleteMany({ channelId });
         await PointModel.deleteMany({ channelId });
         
+        // Memory cleanup
+        let i = commandsDB.length;
+        while (i--) { if (commandsDB[i].channelId === channelId) commandsDB.splice(i, 1); }
+
         checkStreamsAndManageConnection();
         res.json({ success: true });
     } catch (e) {
@@ -579,7 +605,10 @@ router.get('/api/admin/status', adminAuth, async (req, res) => {
 router.get('/api/config', (req, res) => {
     const proto = req.headers['x-forwarded-proto'] || 'http';
     const host = req.headers.host;
-    res.json({ apiUrl: process.env.BASE_URL || `${proto}://${host}` });
+    res.json({ 
+        apiUrl: process.env.BASE_URL || `${proto}://${host}`,
+        gatewayUrl: process.env.GATEWAY_PUBLIC_URL || 'http://localhost:3000'
+    });
 });
 
 router.get('/auth/twitch', (req, res) => { 

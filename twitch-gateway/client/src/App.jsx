@@ -176,6 +176,7 @@ const StreamerDashboard = ({ logout }) => {
     const [subs, setSubs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [config, setConfig] = useState(null); // Add Config state
     
     // Modal
     const [showAuthModal, setShowAuthModal] = useState(false);
@@ -184,9 +185,10 @@ const StreamerDashboard = ({ logout }) => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [meRes, subsRes] = await Promise.all([
+            const [meRes, subsRes, configRes] = await Promise.all([
                 fetch('/api/me'),
-                fetch('/api/me/subscriptions')
+                fetch('/api/me/subscriptions'),
+                fetch('/api/config')
             ]);
             
             if (!meRes.ok) {
@@ -197,8 +199,11 @@ const StreamerDashboard = ({ logout }) => {
 
             const meData = await meRes.json();
             const subsData = await subsRes.json();
+            const configData = await configRes.json();
+            
             setMe(meData);
             setSubs(subsData);
+            setConfig(configData);
         } catch (e) {
             setError(e.message);
         } finally {
@@ -237,7 +242,19 @@ const StreamerDashboard = ({ logout }) => {
             <div className="max-w-3xl mx-auto">
                 <header className="flex justify-between items-center border-b border-gray-700 pb-4 mb-6">
                     <h1 className="text-2xl font-bold text-purple-400">Streamer Dashboard</h1>
-                    <button onClick={logout} className="text-sm text-gray-400 hover:text-white">Logout</button>
+                    <div className="flex gap-3 items-center">
+                        {config?.appUrl && (
+                            <a 
+                                href={config.appUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-sm bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded font-bold transition-colors"
+                            >
+                                Go to App
+                            </a>
+                        )}
+                        <button onClick={logout} className="text-sm text-gray-400 hover:text-white">Logout</button>
+                    </div>
                 </header>
 
                 <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 shadow-lg mb-8">

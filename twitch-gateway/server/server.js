@@ -1,6 +1,20 @@
 
-const path = require('path');
-const fs = require('fs');
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import crypto from 'crypto';
+import axios from 'axios';
+import session from 'express-session';
+import dotenv from 'dotenv';
+import { Token } from './models.js';
+import { Gateway } from './gateway.js';
+import { TwitchService } from './twitch-service.js'; // Updated import
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // FIX: Suppress TMI.js Deprecation Warning (DEP0060)
 const originalEmitWarning = process.emitWarning;
@@ -12,21 +26,11 @@ process.emitWarning = (warning, ...args) => {
 
 // Attempt to load .env from root, handle different CWD scenarios
 const envPath = path.join(__dirname, '../.env');
-const dotenvResult = require('dotenv').config({ path: envPath });
+const dotenvResult = dotenv.config({ path: envPath });
 if (dotenvResult.error) {
   // Fallback to default load if specific path fails
-  require('dotenv').config();
+  dotenv.config();
 }
-
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const crypto = require('crypto');
-const axios = require('axios');
-const session = require('express-session');
-const { Token } = require('./models');
-const Gateway = require('./gateway');
-const TwitchBot = require('./bot');
 
 // --- Environment Validation ---
 const requiredEnvVars = ['TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET', 'TWITCH_WEBHOOK_SECRET', 'ADMIN_PASSWORD'];
@@ -53,10 +57,10 @@ const WS_PORT = process.env.WS_PORT || 8080;
 const PUBLIC_URL = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
 const AUTH_CALLBACK_PATH = process.env.TWITCH_AUTH_CALLBACK_PATH || '/auth/callback';
 
-// Setup Gateway & Bot
+// Setup Gateway & Service
 const gateway = new Gateway(WS_PORT, null);
-const bot = new TwitchBot(gateway);
-gateway.botService = bot;
+const service = new TwitchService(gateway); // Updated class usage
+gateway.botService = service;
 
 // Middleware
 app.use(cors());
@@ -121,11 +125,19 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/twitch-gate
     }
 
     if (missingVars.length === 0) {
-      // Initialize bot (connect chat, cleanup old subscriptions)
-      bot.initialize();
+      // Initialize service (connect chat, cleanup old subscriptions)
+      service.initialize();
     }
   })
   .catch(err => console.error('Mongo Error:', err));
+
+// --- API Config ---
+app.get('/api/config', (req, res) => {
+    res.json({
+        appUrl: process.env.BASE_URL || 'http://localhost:3001',
+        gatewayUrl: process.env.GATEWAY_PUBLIC_URL || `http://${req.headers.host}`
+    });
+});
 
 // --- Login / Admin Routes ---
 
@@ -166,7 +178,7 @@ app.get('/api/bot', requireAuth, async (req, res) => {
 
 app.get('/api/subscriptions', requireAuth, async (req, res) => {
     try {
-        const subs = await bot.getAdminSubscriptions();
+        const subs = await service.getAdminSubscriptions();
         res.json(subs);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -175,7 +187,7 @@ app.get('/api/subscriptions', requireAuth, async (req, res) => {
 
 app.post('/api/streamers/:id/refresh', requireAuth, async (req, res) => {
   try {
-    await bot.refreshStreamerToken(req.params.id);
+    await service.refreshStreamerToken(req.params.id);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -184,7 +196,7 @@ app.post('/api/streamers/:id/refresh', requireAuth, async (req, res) => {
 
 app.delete('/api/streamers/:id', requireAuth, async (req, res) => {
   try {
-    await bot.removeStreamer(req.params.id);
+    await service.removeStreamer(req.params.id);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -194,7 +206,7 @@ app.delete('/api/streamers/:id', requireAuth, async (req, res) => {
 app.delete('/api/bot', requireAuth, async (req, res) => {
   try {
     await Token.deleteMany({ type: 'bot' });
-    await bot.disconnect();
+    await service.disconnect();
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -224,7 +236,7 @@ app.get('/api/me/subscriptions', requireStreamer, async (req, res) => {
     try {
         if (!req.session.streamerId) return res.status(404).json({ error: 'Not logged in as streamer' });
         
-        const subs = await bot.getStreamerSubscriptions(req.session.streamerId);
+        const subs = await service.getStreamerSubscriptions(req.session.streamerId);
         res.json(subs);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -235,7 +247,7 @@ app.delete('/api/me', requireStreamer, async (req, res) => {
     try {
         if (!req.session.streamerId) return res.status(400).json({ error: 'Not logged in as streamer' });
         
-        await bot.removeStreamer(req.session.streamerId);
+        await service.removeStreamer(req.session.streamerId);
         req.session.destroy(); 
         res.json({ success: true });
     } catch (e) {
@@ -341,11 +353,11 @@ app.get(AUTH_CALLBACK_PATH, async (req, res) => {
     );
 
     if (type === 'bot') {
-      await bot.disconnect();
-      await bot.initialize();
+      await service.disconnect();
+      await service.initialize();
       res.redirect('/?success=true');
     } else {
-      await bot.setupEventSub(tokenDoc);
+      await service.setupEventSub(tokenDoc);
       
       if (portal) {
           req.session.streamerId = user.id;
@@ -390,7 +402,7 @@ const verifyTwitchSignature = (req, res, buf) => {
 
 app.post('/webhooks/callback', (req, res) => {
   if (!verifyTwitchSignature(req, res, req.body)) {
-    return res.status(403).send('Forbidden');
+    return res.status(430).send('Forbidden');
   }
 
   const type = req.header('Twitch-Eventsub-Message-Type');
@@ -442,13 +454,14 @@ if (isProduction) {
   });
 } else {
   // Proxy unknown requests to Vite dev server in development
-  const { createProxyMiddleware } = require('http-proxy-middleware');
-  app.use(createProxyMiddleware({
-    target: 'http://localhost:5173',
-    changeOrigin: true,
-    ws: true,
-    logLevel: 'warn'
-  }));
+  import('http-proxy-middleware').then(({ createProxyMiddleware }) => {
+    app.use(createProxyMiddleware({
+      target: 'http://localhost:5173',
+      changeOrigin: true,
+      ws: true,
+      logLevel: 'warn'
+    }));
+  });
 }
 
 app.listen(PORT, () => {

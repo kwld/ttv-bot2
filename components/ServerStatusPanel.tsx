@@ -44,12 +44,27 @@ const ServerStatusPanel: React.FC<ServerStatusPanelProps> = ({
   const [tempUrl, setTempUrl] = useState(serverUrl);
   const [tempClientId, setTempClientId] = useState(globalClientId);
   const [tempGeminiKey, setTempGeminiKey] = useState(geminiApiKey);
+  const [gatewayUrl, setGatewayUrl] = useState<string | null>(null);
 
   useEffect(() => {
     setTempUrl(serverUrl);
     setTempClientId(globalClientId);
     setTempGeminiKey(geminiApiKey);
   }, [serverUrl, globalClientId, geminiApiKey, isConfigOpen]);
+
+  // Fetch Gateway URL from Server Config
+  useEffect(() => {
+      if (isConnected) {
+          fetch(`${serverUrl}/api/config`)
+              .then(res => res.json())
+              .then(data => {
+                  if (data.gatewayUrl) {
+                      setGatewayUrl(data.gatewayUrl);
+                  }
+              })
+              .catch(() => {});
+      }
+  }, [isConnected, serverUrl]);
 
   const handleSaveConfig = (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,7 +145,17 @@ const ServerStatusPanel: React.FC<ServerStatusPanelProps> = ({
             </div>
             
             {authenticatedUser && (
-                <div className="pt-2 border-t border-slate-700">
+                <div className="pt-2 border-t border-slate-700 flex flex-col gap-2">
+                    {gatewayUrl && (
+                        <a 
+                            href={`${gatewayUrl}/auth/login/streamer?portal=true&scopes=user:read:email`} 
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full py-1.5 bg-purple-900/30 hover:bg-purple-900/50 text-purple-400 hover:text-purple-300 rounded-lg text-[10px] font-black uppercase border border-purple-900/50 transition-colors text-center"
+                        >
+                            <i className="fas fa-external-link-alt mr-1"></i> Open Gateway Dashboard
+                        </a>
+                    )}
                     <button 
                         type="button" 
                         onClick={handleDeleteTokens}

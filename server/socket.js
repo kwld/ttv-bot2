@@ -1,6 +1,6 @@
 
 import { WebSocket } from 'ws';
-import { usersDB, userSockets, getUserIdBySocket, authWaiters } from './context.js';
+import { usersDB, userSockets, getUserIdBySocket, authWaiters, botClient } from './context.js';
 import { AuthManager } from './authManager.js';
 import { checkStreamsAndManageConnection } from './bot.js';
 import { FlowExecutor } from './services/engine/FlowExecutor.js';
@@ -11,8 +11,10 @@ import mongoose from 'mongoose';
 
 const authManager = new AuthManager();
 const processManager = new ProcessManager(); // Singleton instance
+const IS_DEV = process.env.DEV === 'true';
 
 const log = (tag, msg) => {
+    if (!IS_DEV) return;
     const time = new Date().toISOString().split('T')[1].split('.')[0];
     console.log(`[${time}] [${tag}] ${msg}`);
 };
@@ -97,10 +99,24 @@ export const handleConnection = async (ws, req) => {
                 if (identity) ws.send(JSON.stringify({ type: 'IDENTITY', payload: identity }));
                 return;
             }
-            if (activeUserId || data.type === 'GET_EMOTES' || data.type === 'GET_BADGES') {
-                handleMessage(ws, data, activeUserId || 'anonymous');
+
+            // Authenticated Routes
+            if (activeUserId) {
+                // --- OUTGOING CHAT HANDLER ---
+                if (data.type === 'CHAT_MESSAGE') {
+                    const { channel, message } = data.payload;
+                    if (botClient && botClient.isConnected) {
+                        botClient.say(channel, message);
+                    }
+                }
+                
+                handleMessage(ws, data, activeUserId);
+            } 
+            // Unauthenticated but allowed methods
+            else if (data.type === 'GET_EMOTES' || data.type === 'GET_BADGES') {
+                handleMessage(ws, data, 'anonymous');
             } else {
-                if (['GET_COMMANDS', 'GET_ACCESSIBLE_CHANNELS', 'GET_USERS', 'CLEAR_USERS', 'ADD_EDITOR', 'REMOVE_EDITOR', 'GET_EDITORS'].includes(data.type)) {
+                if (['GET_COMMANDS', 'GET_ACCESSIBLE_CHANNELS', 'GET_USERS', 'CLEAR_USERS', 'ADD_EDITOR', 'REMOVE_EDITOR', 'GET_EDITORS', 'CHAT_MESSAGE'].includes(data.type)) {
                     ws.send(JSON.stringify({ type: 'LOG', payload: { level: 'error', message: 'Authentication required' } }));
                 }
             }
@@ -147,7 +163,7 @@ async function handleMessage(ws, data, userId) {
                 }
                 ws.send(JSON.stringify({ type: 'EMOTES_RESPONSE', payload: { requestId, data: fetchedData || {} } }));
             } catch (e) {
-                console.error(`[Server] Emote Fetch Error (${provider}):`, e);
+                if (IS_DEV) console.error(`[Server] Emote Fetch Error (${provider}):`, e);
                 ws.send(JSON.stringify({ type: 'EMOTES_RESPONSE', payload: { requestId, data: {} } }));
             }
             break;
@@ -184,6 +200,9 @@ async function handleMessage(ws, data, userId) {
             
             const addChannel = (id, name, role, settings) => {
                 if (!channelsMap.has(id)) {
+                    // Check actual join status from GatewayClient
+                    const isJoined = botClient ? botClient.isJoined(name) : false;
+
                     channelsMap.set(id, {
                         id, 
                         name: name || id, 
@@ -195,7 +214,8 @@ async function handleMessage(ws, data, userId) {
                         botEnabled: settings ? settings.botEnabled : true, 
                         isLocked: settings ? !!settings.isLocked : false,
                         clientLocked: settings ? !!settings.clientLocked : false,
-                        serverLocked: settings ? !!settings.serverLocked : false
+                        serverLocked: settings ? !!settings.serverLocked : false,
+                        serverJoined: isJoined
                     });
                 }
             };
@@ -217,8 +237,6 @@ async function handleMessage(ws, data, userId) {
             break;
         }
         case 'GET_COMMANDS': { 
-            // Note: Saving/Syncing is now handled via HTTP /api/commands route for security
-            // This is just for fetching
             const channelId = data.payload.channelId || userId;
             const authCheck = await ChannelSettingsModel.findOne({ channelId });
             const isOwner = channelId === userId;
@@ -233,8 +251,6 @@ async function handleMessage(ws, data, userId) {
             }
 
             if (mongoose.connection.readyState === 1) {
-                // Return persisted commands (we mask secrets here if any, but fetching usually implies trust or UI view)
-                // If secrets logic from previous implementation is needed, mask here too.
                 const cmds = await import('./db.js').then(m => m.CommandModel.find({ channelId }).lean());
                 ws.send(JSON.stringify({ type: 'SYNC_COMMANDS', payload: cmds }));
             }
@@ -351,7 +367,7 @@ async function handleMessage(ws, data, userId) {
                         const json = await res.json();
                         if (json.data) { const results = json.data.map(u => ({ id: u.id, username: u.login, displayName: u.display_name, profileImageUrl: u.profile_image_url })); ws.send(JSON.stringify({ type: 'USER_SEARCH_RESULTS', payload: results })); return; }
                     }
-                } catch(e) { console.error("Search users error", e); }
+                } catch(e) { if(IS_DEV) console.error("Search users error", e); }
             }
             const localResults = Object.values(usersDB).filter(u => u.username?.toLowerCase().includes(query.toLowerCase()));
             ws.send(JSON.stringify({ type: 'USER_SEARCH_RESULTS', payload: localResults }));

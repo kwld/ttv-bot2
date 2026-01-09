@@ -1,22 +1,9 @@
 
-const tmi = require('tmi.js');
-const axios = require('axios');
-const { Token } = require('./models');
-const crypto = require('crypto');
+import { Token } from './models.js';
+import axios from 'axios';
+import { TwitchIRCClient } from './TwitchIRC.js';
 
-const SCOPE_REQUIREMENTS = {
-  'channel.follow': 'moderator:read:followers',
-  'channel.subscribe': 'channel:read:subscriptions',
-  'channel.subscription.end': 'channel:read:subscriptions',
-  'channel.subscription.gift': 'channel:read:subscriptions',
-  'channel.subscription.message': 'channel:read:subscriptions',
-  'channel.cheer': 'bits:read',
-  'channel.bits.use': 'bits:read',
-  'channel.channel_points_custom_reward_redemption.add': 'channel:read:redemptions',
-  'channel.channel_points_automatic_reward_redemption.add': 'channel:read:redemptions'
-};
-
-class TwitchBot {
+export class TwitchBot {
   constructor(gateway) {
     this.gateway = gateway;
     this.client = null;
@@ -28,7 +15,6 @@ class TwitchBot {
     await this.disconnect();
 
     // 1. Run Global Cleanup on Startup
-    // This removes subscriptions pointing to old URLs (e.g. previous ngrok) or broken ones.
     await this.cleanupOrphanedSubscriptions();
 
     // 2. Initialize Bot Chat Client
@@ -44,99 +30,109 @@ class TwitchBot {
     
     this.botUserId = botToken.twitchId;
 
-    // Initialize TMI Client (Mainly for writing messages now)
-    this.client = new tmi.Client({
-      options: { debug: false }, // Disable verbose TMI logging, we will log custom events
-      connection: { reconnect: true, secure: true },
-      identity: {
-        username: botToken.login,
-        password: `oauth:${botToken.accessToken}`
-      },
-      channels: [] // Will join dynamically via API commands
-    });
-
-    this.client.on('connected', () => {
-      console.log('[TwitchIRC] Connected to Chat.');
-      if (this.gateway) {
-          this.gateway.broadcast('SYSTEM_LOG', {
-              type: 'SYSTEM_LOG',
-              message: 'Connected to Twitch IRC.',
-              timestamp: new Date().toISOString()
-          });
-      }
-      this.joinSavedChannels();
-    });
-    
-    this.client.on('join', (channel, username, self) => {
-        if(self) {
-            console.log(`[TwitchIRC] JOINED ${channel}`);
-            if (this.gateway) {
-                this.gateway.broadcast('SYSTEM_LOG', {
-                    type: 'SYSTEM_LOG',
-                    message: `🟢 Joined IRC: ${channel}`,
-                    timestamp: new Date().toISOString()
-                });
-            }
-        }
-    });
-
-    this.client.on('part', (channel, username, self) => {
-        if(self) {
-            console.log(`[TwitchIRC] PARTED ${channel}`);
-            if (this.gateway) {
-                this.gateway.broadcast('SYSTEM_LOG', {
-                    type: 'SYSTEM_LOG',
-                    message: `🔴 Parted IRC: ${channel}`,
-                    timestamp: new Date().toISOString()
-                });
-            }
-        }
-    });
-
-    // --- TMI Message Handler (Fallback for Chat Reading) ---
-    this.client.on('message', (channel, tags, message, self) => {
-        if (self) return; // Ignore self
-        
-        // Map TMI tags to EventSub structure for seamless compatibility
-        const eventData = {
-            broadcaster_user_id: tags['room-id'],
-            broadcaster_user_login: channel.replace('#', ''),
-            broadcaster_user_name: channel.replace('#', ''), 
-            chatter_user_id: tags['user-id'],
-            chatter_user_login: tags['username'],
-            chatter_user_name: tags['display-name'],
-            message_id: tags['id'],
-            message: {
-                text: message,
-                fragments: [] 
-            },
-            color: tags['color'] || '',
-            badges: Object.entries(tags['badges'] || {}).map(([set_id, id]) => ({ set_id, id, info: '' })),
-            message_type: 'text',
-            channel_points_custom_reward_id: tags['custom-reward-id'] || null
-        };
-        
-        // Broadcast as if it was an EventSub 'channel.chat.message' event
+    // Use custom TwitchIRCClient instead of tmi.js
+    this.client = new TwitchIRCClient({
+      token: botToken.accessToken,
+      username: botToken.login,
+      channels: [], // Will be populated dynamically via joins
+      
+      onConnected: () => {
+        console.log('[TwitchIRC] Connected to Chat.');
         if (this.gateway) {
-            this.gateway.broadcast('channel.chat.message', {
-                type: 'channel.chat.message',
-                timestamp: new Date().toISOString(),
-                event: eventData,
-                subscription: { type: 'channel.chat.message', status: 'simulated_via_irc' }
+            this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: true });
+            this.gateway.broadcast('SYSTEM_LOG', {
+                type: 'SYSTEM_LOG',
+                message: 'Connected to Twitch IRC.',
+                timestamp: new Date().toISOString()
             });
         }
+      },
+
+      onDisconnected: () => {
+          if (this.gateway) {
+              this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: false });
+          }
+      },
+
+      onJoin: (channel) => {
+          console.log(`[TwitchIRC] JOINED #${channel}`);
+          if (this.gateway) {
+              this.gateway.broadcast('SYSTEM_LOG', {
+                  type: 'SYSTEM_LOG',
+                  message: `🟢 Joined IRC: #${channel}`,
+                  timestamp: new Date().toISOString()
+              });
+          }
+      },
+
+      onPart: (channel) => {
+          console.log(`[TwitchIRC] PARTED #${channel}`);
+          if (this.gateway) {
+              this.gateway.broadcast('SYSTEM_LOG', {
+                  type: 'SYSTEM_LOG',
+                  message: `🔴 Parted IRC: #${channel}`,
+                  timestamp: new Date().toISOString()
+              });
+          }
+      },
+
+      onMessage: (msg) => {
+          if (process.env.DEV === 'true') {
+               console.log(`[IRC-DEBUG] #${msg.channel} ${msg.user.displayName}: ${msg.message}`);
+          }
+
+          // Convert internal msg format to EventSub-like structure for the gateway
+          // UPDATED: Include raw 1:1 mapping as requested to ensure no data loss
+          const eventData = {
+              broadcaster_user_id: msg.tags['room-id'],
+              broadcaster_user_login: msg.channel,
+              broadcaster_user_name: msg.channel, 
+              chatter_user_id: msg.user.id,
+              chatter_user_login: msg.user.username,
+              chatter_user_name: msg.user.displayName,
+              message_id: msg.tags.id,
+              message: {
+                  text: msg.message,
+                  fragments: [] 
+              },
+              color: msg.user.color || '',
+              badges: Object.entries(msg.user.badges || {}).map(([set_id, id]) => ({ set_id, id, info: '' })),
+              message_type: 'text',
+              channel_points_custom_reward_id: msg.redemption ? msg.redemption.id : null,
+              is_self: msg.user.username === this.botUserId,
+              
+              // 1:1 Raw Object Injection for robust processing
+              raw_irc: {
+                  ...msg,
+                  tags: msg.tags // Explicitly include tags
+              }
+          };
+          
+          if (this.gateway) {
+              this.gateway.broadcast('channel.chat.message', {
+                  type: 'channel.chat.message',
+                  timestamp: new Date().toISOString(),
+                  event: eventData,
+                  subscription: { type: 'channel.chat.message', status: 'simulated_via_irc' }
+              });
+          }
+      },
+      
+      onAuthFailed: () => {
+          console.error('[TwitchIRC] Auth failed. Token might be invalid.');
+      }
     });
 
-    await this.client.connect().catch(console.error);
+    this.client.connect();
     
-    // Sync EventSub subscriptions (including chat) for all registered streamers
+    // Sync EventSub subscriptions
     await this.syncAllStreamers();
   }
 
   async disconnect() {
     if (this.client) {
       try {
-        await this.client.disconnect();
+        this.client.disconnect();
         console.log('[TwitchIRC] Client Disconnected');
       } catch (e) {
         console.error('[TwitchIRC] Error disconnecting:', e);
@@ -146,10 +142,11 @@ class TwitchBot {
     }
   }
 
-  async joinSavedChannels() {
-    // We no longer auto-join from DB on startup, as the main app dictates logic via Gateway commands
-    // But we might want to ensure we track what we *think* we are in.
-    // For now, let the external app manage joins.
+  getJoinedChannels() {
+    if (this.client) {
+      return this.client.getJoinedChannels();
+    }
+    return [];
   }
   
   async syncAllStreamers() {
@@ -165,25 +162,22 @@ class TwitchBot {
   join(channel) {
       if (this.client) {
           console.log(`[GatewayCmd] Joining ${channel}`);
-          this.client.join(channel).catch(e => console.error(`[TwitchIRC] Failed to join ${channel}:`, e));
+          // Our custom client handles queuing if not connected
+          this.client.join(channel);
       }
   }
 
   part(channel) {
       if (this.client) {
           console.log(`[GatewayCmd] Parting ${channel}`);
-          this.client.part(channel).catch(e => {
-              // Suppress "No response from Twitch" error on PART, as it often means we weren't joined anyway
-              if (e === 'No response from Twitch.' || e.message === 'No response from Twitch.') return;
-              console.error(`[TwitchIRC] Failed to part ${channel}:`, e);
-          });
+          this.client.part(channel);
       }
   }
 
   say(channel, message) {
     if (this.client) {
       console.log(`[GatewayCmd] Saying in ${channel}: ${message}`);
-      this.client.say(channel, message).catch(console.error);
+      this.client.say(channel, message);
     }
   }
 
@@ -327,20 +321,13 @@ class TwitchBot {
   }
 
   async setupEventSub(streamerToken) {
-    // Ensure token is fresh
     if (streamerToken.isExpired()) {
       await this.refreshToken(streamerToken);
     }
     
-    // Ensure we have bot ID and Token for chat subscriptions
-    let botId = this.botUserId;
     let botTokenDoc = await Token.findOne({ type: 'bot' });
-    
-    if (botTokenDoc) {
-        botId = botTokenDoc.twitchId;
-        if (botTokenDoc.isExpired()) {
-            botTokenDoc = await this.refreshToken(botTokenDoc);
-        }
+    if (botTokenDoc && botTokenDoc.isExpired()) {
+        botTokenDoc = await this.refreshToken(botTokenDoc);
     }
 
     const definitions = [
@@ -355,11 +342,22 @@ class TwitchBot {
       { type: 'channel.subscription.end', version: '1' },
       { type: 'channel.subscription.gift', version: '1' },
       { type: 'channel.subscription.message', version: '1' },
-      // Shared Chat Events
       { type: 'channel.shared_chat.begin', version: '1' },
       { type: 'channel.shared_chat.update', version: '1' },
       { type: 'channel.shared_chat.end', version: '1' },
     ];
+    
+    const SCOPE_REQUIREMENTS = {
+      'channel.follow': 'moderator:read:followers',
+      'channel.subscribe': 'channel:read:subscriptions',
+      'channel.subscription.end': 'channel:read:subscriptions',
+      'channel.subscription.gift': 'channel:read:subscriptions',
+      'channel.subscription.message': 'channel:read:subscriptions',
+      'channel.cheer': 'bits:read',
+      'channel.bits.use': 'bits:read',
+      'channel.channel_points_custom_reward_redemption.add': 'channel:read:redemptions',
+      'channel.channel_points_automatic_reward_redemption.add': 'channel:read:redemptions'
+    };
 
     const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
     const secret = process.env.TWITCH_WEBHOOK_SECRET;
@@ -378,17 +376,10 @@ class TwitchBot {
         if (def.requiresModerator) {
             condition.moderator_user_id = streamerToken.twitchId;
         }
-        if (def.extraCondition) {
-            Object.assign(condition, def.extraCondition);
-        }
 
         const validSub = allSubs.find(s => {
-            if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) {
-                return false;
-            }
-            if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') {
-                return false;
-            }
+            if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
+            if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
             const sCond = s.condition;
             const keysA = Object.keys(condition);
             const keysB = Object.keys(sCond);
@@ -406,18 +397,11 @@ class TwitchBot {
             await this.deleteSubscription(sub.id, appAccessToken);
         }
 
-        if (validSub) {
-            continue;
-        }
+        if (validSub) continue;
         
+        // Subscription Logic (App Token vs User Token if needed)
         let accessToken = appAccessToken;
-        if (def.authType === 'user') {
-            if (!botTokenDoc) {
-                console.warn(`[EventSub] Cannot subscribe to ${def.type}: Bot not authenticated.`);
-                continue;
-            }
-            accessToken = botTokenDoc.accessToken;
-        }
+        // Most EventSubs use App Token unless specified (none here currently forced to User)
 
         try {
             await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
@@ -438,9 +422,7 @@ class TwitchBot {
             });
             console.log(`[EventSub] Subscribed to ${def.type} for ${streamerToken.login}`);
         } catch (e) {
-            if (e.response?.status === 409) {
-                // Conflict, likely exists
-            } else {
+            if (e.response?.status !== 409) {
                 console.error(`[EventSub] Failed to subscribe ${def.type} for ${streamerToken.login}`, e.response?.data);
             }
         }
@@ -467,10 +449,8 @@ class TwitchBot {
 
       if(this.client) {
           const streamer = await Token.findOne({ twitchId, type: 'streamer' });
-          if (streamer) this.client.part(streamer.login).catch(() => {});
+          if (streamer) this.client.part(streamer.login);
       }
       await Token.deleteOne({ twitchId, type: 'streamer' });
   }
 }
-
-module.exports = TwitchBot;

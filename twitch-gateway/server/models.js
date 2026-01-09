@@ -1,4 +1,5 @@
-const mongoose = require('mongoose');
+
+import mongoose from 'mongoose';
 
 const tokenSchema = new mongoose.Schema({
   twitchId: { type: String, required: true, unique: true },
@@ -20,6 +21,4 @@ tokenSchema.methods.isExpired = function() {
   return now >= this.obtainedAt.getTime() + (this.expiresIn * 1000) - (5 * 60 * 1000);
 };
 
-const Token = mongoose.model('Token', tokenSchema);
-
-module.exports = { Token };
+export const Token = mongoose.model('Token', tokenSchema);

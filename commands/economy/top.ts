@@ -3,10 +3,10 @@ export const CMD_TOP_YAML = `
 id: core-top
 name: Ranking (Top)
 category: Economy
-version: '2.2'
+version: '2.3'
 provider: twitch
 channelId: sim_1
-enabled: false
+enabled: true
 testAsUser: false
 allowedRanks:
   - regular
