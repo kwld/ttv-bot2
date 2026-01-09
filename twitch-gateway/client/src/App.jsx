@@ -235,7 +235,6 @@ const StreamerDashboard = ({ logout }) => {
     if (!me) return null;
 
     const grantedScopes = me.scope || [];
-    const missingRecommended = REQUIRED_SCOPES.filter(s => !grantedScopes.includes(s));
     
     return (
         <div className="min-h-screen bg-gray-900 text-white p-4">
@@ -283,12 +282,6 @@ const StreamerDashboard = ({ logout }) => {
                                 ))}
                                 {grantedScopes.length === 0 && <span className="text-xs text-gray-500 italic">Basic access only</span>}
                              </div>
-                             
-                             {missingRecommended.length > 0 && (
-                                 <div className="mb-4 text-xs text-amber-400 bg-amber-900/20 p-2 rounded border border-amber-900/50">
-                                     <i className="fas fa-exclamation-triangle mr-1"></i> Missing recommended features.
-                                 </div>
-                             )}
 
                              <div className="flex flex-col gap-2">
                                 <button 
