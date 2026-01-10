@@ -11,8 +11,7 @@ import session from 'express-session';
 import dotenv from 'dotenv';
 import { Token } from './models.js';
 import { Gateway } from './gateway.js';
-import { TwitchService } from './twitch-service.js';
-import { logger } from './logger.js'; // Import Logger
+import { TwitchService } from './twitch-service.js'; // Updated import
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,7 +47,6 @@ if (missingVars.length > 0 && !hasUrl) {
   missingVars.forEach(k => console.error(`  - ${k}`));
   console.error('\nPlease copy .env.example to .env and fill in your configuration.');
   console.error('\x1b[31m%s\x1b[0m', '------------------------------------------------------------');
-  logger.addLog('error', 'Missing Environment Variables', { missingVars }, 'Startup');
 }
 
 const app = express();
@@ -61,7 +59,7 @@ const AUTH_CALLBACK_PATH = process.env.TWITCH_AUTH_CALLBACK_PATH || '/auth/callb
 
 // Setup Gateway & Service
 const gateway = new Gateway(WS_PORT, null);
-const service = new TwitchService(gateway);
+const service = new TwitchService(gateway); // Updated class usage
 gateway.botService = service;
 
 // Middleware
@@ -112,7 +110,6 @@ const requireStreamer = (req, res, next) => {
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/twitch-gateway')
   .then(async () => {
     console.log('MongoDB Connected');
-    logger.addLog('info', 'MongoDB Connected', null, 'Database');
     
     // Cleanup legacy index
     try {
@@ -129,17 +126,10 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/twitch-gate
 
     if (missingVars.length === 0) {
       // Initialize service (connect chat, cleanup old subscriptions)
-      try {
-          await service.initialize();
-      } catch (err) {
-          logger.addLog('error', 'Service Initialization Failed', err, 'Startup');
-      }
+      service.initialize();
     }
   })
-  .catch(err => {
-      console.error('Mongo Error:', err);
-      logger.addLog('error', 'MongoDB Connection Failed', err, 'Database');
-  });
+  .catch(err => console.error('Mongo Error:', err));
 
 // --- API Config ---
 app.get('/api/config', (req, res) => {
@@ -157,7 +147,6 @@ app.post('/api/login', (req, res) => {
         req.session.isAdmin = true;
         return res.json({ success: true });
     }
-    logger.addLog('warn', 'Failed Admin Login Attempt', null, 'Auth');
     res.status(401).json({ error: 'Invalid password' });
 });
 
@@ -177,19 +166,9 @@ app.get('/api/check-auth', (req, res) => {
 
 // --- Protected Admin API Routes ---
 
-// NEW: LOGS ENDPOINT
-app.get('/api/logs', requireAuth, (req, res) => {
-    res.json(logger.getLogs());
-});
-
 app.get('/api/streamers', requireAuth, async (req, res) => {
-  try {
-      const streamers = await Token.find({ type: 'streamer' }).select('twitchId login displayName avatar obtainedAt scope isManual');
-      res.json(streamers);
-  } catch(e) {
-      logger.addLog('error', 'Failed to fetch streamers', e, 'API');
-      res.status(500).json({ error: e.message });
-  }
+  const streamers = await Token.find({ type: 'streamer' }).select('twitchId login displayName avatar obtainedAt scope isManual');
+  res.json(streamers);
 });
 
 // NEW: Add Manual Streamer
@@ -201,7 +180,7 @@ app.post('/api/streamers/manual', requireAuth, async (req, res) => {
         await service.addManualStreamer(username);
         res.json({ success: true });
     } catch (e) {
-        logger.addLog('error', 'Manual Streamer Add Error', e, 'API');
+        console.error("Manual add error:", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -249,22 +228,16 @@ app.get('/api/subscriptions', requireAuth, async (req, res) => {
         // --- HYDRATION LOGIC END ---
         
     } catch (e) {
-        logger.addLog('error', 'Failed to fetch subscriptions', e, 'API');
         res.status(500).json({ error: e.message });
     }
 });
 
 // NEW: Return active channels for gateway dashboard
 app.get('/api/status', requireAuth, (req, res) => {
-    try {
-        res.json({
-            channels: service.getJoinedChannels(),
-            ircConnected: service.client ? service.client.isConnected : false
-        });
-    } catch (e) {
-        logger.addLog('error', 'Status Check Failed', e, 'API');
-        res.status(500).json({error: e.message});
-    }
+    res.json({
+        channels: service.getJoinedChannels(),
+        ircConnected: service.client ? service.client.isConnected : false
+    });
 });
 
 app.post('/api/streamers/:id/refresh', requireAuth, async (req, res) => {
@@ -272,7 +245,6 @@ app.post('/api/streamers/:id/refresh', requireAuth, async (req, res) => {
     await service.refreshStreamerToken(req.params.id);
     res.json({ success: true });
   } catch (e) {
-    logger.addLog('error', `Token refresh failed for ${req.params.id}`, e, 'Auth');
     res.status(500).json({ error: e.message });
   }
 });
@@ -282,7 +254,6 @@ app.delete('/api/streamers/:id', requireAuth, async (req, res) => {
     await service.removeStreamer(req.params.id);
     res.json({ success: true });
   } catch (e) {
-    logger.addLog('error', `Streamer removal failed for ${req.params.id}`, e, 'API');
     res.status(500).json({ error: e.message });
   }
 });
@@ -293,7 +264,6 @@ app.delete('/api/bot', requireAuth, async (req, res) => {
     await service.disconnect();
     res.json({ success: true });
   } catch (e) {
-    logger.addLog('error', 'Bot disconnect failed', e, 'API');
     res.status(500).json({ error: e.message });
   }
 });
@@ -303,7 +273,6 @@ app.post('/api/bot/reset-subs', requireAuth, async (req, res) => {
         await service.resetBotSubscriptions();
         res.json({ success: true });
     } catch (e) {
-        logger.addLog('error', 'Bot Sub Reset Failed', e, 'API');
         res.status(500).json({ error: e.message });
     }
 });
@@ -424,10 +393,7 @@ app.get('/auth/login/:type', (req, res) => {
 app.get(AUTH_CALLBACK_PATH, async (req, res) => {
   const { code, state, error, error_description } = req.query;
   
-  if (error) {
-      logger.addLog('error', `OAuth Callback Error: ${error_description}`, null, 'Auth');
-      return res.status(400).send(`Error: ${error_description}`);
-  }
+  if (error) return res.status(400).send(`Error: ${error}`);
   
   try {
     const stateData = JSON.parse(decodeURIComponent(state));
@@ -486,7 +452,6 @@ app.get(AUTH_CALLBACK_PATH, async (req, res) => {
       // FORCE RESTART FOR BOT AUTH
       // This ensures a completely clean slate for the chat connection
       console.log("[Auth] Bot re-authenticated. Restarting Gateway service...");
-      logger.addLog('info', 'Bot re-authenticated. Restarting.', null, 'Auth');
       res.redirect('/?success=true');
       
       // Allow response to flush before killing process
@@ -506,7 +471,6 @@ app.get(AUTH_CALLBACK_PATH, async (req, res) => {
     }
 
   } catch (e) {
-    logger.addLog('error', 'Auth Callback Error', e, 'Auth');
     console.error('Auth Error:', e.response?.data || e.message);
     const errorMessage = e.response?.data?.message || e.message;
     res.status(500).send(`Authentication Failed: ${errorMessage}. Check server logs.`);
@@ -522,7 +486,6 @@ const verifyTwitchSignature = (req, res, buf) => {
 
   if (!process.env.TWITCH_WEBHOOK_SECRET) {
       console.error("Missing TWITCH_WEBHOOK_SECRET in environment");
-      logger.addLog('error', 'Missing TWITCH_WEBHOOK_SECRET', null, 'Config');
       return false;
   }
 
@@ -535,7 +498,6 @@ const verifyTwitchSignature = (req, res, buf) => {
   
   if (!match) {
       console.warn(`[Security] Webhook Signature Mismatch! Expected: ${hmac}, Got: ${signature}`);
-      logger.addLog('warn', 'Webhook Signature Mismatch', { expected: hmac, got: signature }, 'Security');
   }
   
   return match;
@@ -559,6 +521,7 @@ app.post('/webhooks/callback', (req, res) => {
     const subscription = data.subscription;
     
     if (subscription && subscription.type) {
+        // console.log(`Event: ${subscription.type} | Streamer: ${data.event?.broadcaster_user_login || 'unknown'}`);
         gateway.broadcast(subscription.type, data);
     }
     
@@ -567,7 +530,6 @@ app.post('/webhooks/callback', (req, res) => {
   
   if (type === 'revocation') {
       console.warn(`[EventSub] Subscription revoked: ${data.subscription.type} (Reason: ${data.subscription.status})`);
-      logger.addLog('warn', `Subscription Revoked: ${data.subscription.type}`, { status: data.subscription.status, id: data.subscription.id }, 'EventSub');
       return res.sendStatus(204);
   }
 
@@ -614,5 +576,4 @@ app.listen(PORT, () => {
     console.log(`\x1b[1mAuth Callback URL: ${PUBLIC_URL}${AUTH_CALLBACK_PATH}\x1b[0m`);
     console.log('\x1b[36m%s\x1b[0m', '------------------------------------------------------------');
   }
-  logger.addLog('info', `Server Started on Port ${PORT}`, null, 'Startup');
 });
