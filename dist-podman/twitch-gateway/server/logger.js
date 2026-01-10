@@ -1,77 +1,58 @@
 
-import crypto from 'crypto';
+export const logs = [];
+const RETENTION_MS = 60 * 60 * 1000; // 1 Hour
 
-class LoggerService {
-    constructor() {
-        this.logs = [];
-        // Clean up logs older than 1 hour every 5 minutes
-        setInterval(() => this.cleanup(), 5 * 60 * 1000);
+export const addLog = (level, message, error = null) => {
+    const timestamp = new Date();
+    
+    let traceback = null;
+    let errorMessage = message;
+
+    if (error) {
+        if (typeof error === 'object') {
+            traceback = error.stack || null;
+            errorMessage = `${message}: ${error.message || JSON.stringify(error)}`;
+        } else {
+            errorMessage = `${message}: ${String(error)}`;
+        }
     }
 
-    /**
-     * Adds a log entry.
-     * @param {string} level - 'info', 'warn', 'error', 'debug'
-     * @param {string} message - Brief description
-     * @param {Error|null} error - Optional error object for traceback
-     * @param {Object|null} context - Additional metadata
-     */
-    add(level, message, error = null, context = null) {
-        const timestamp = new Date();
-        const entry = {
-            id: crypto.randomUUID(),
-            timestamp: timestamp.toISOString(),
-            level,
-            message,
-            trace: error ? (error.stack || error.message) : null,
-            context: context ? JSON.stringify(context, null, 2) : null
-        };
+    const entry = {
+        id: crypto.randomUUID(),
+        timestamp,
+        level: level.toUpperCase(), // INFO, WARN, ERROR
+        message: errorMessage,
+        traceback
+    };
 
-        this.logs.unshift(entry);
-        
-        // Keep logs manageable in memory (max 1000 entries safety cap)
-        if (this.logs.length > 1000) {
-            this.logs = this.logs.slice(0, 1000);
-        }
+    logs.unshift(entry); // Add to top
 
-        // Console output for Docker logs
-        const prefix = `[${level.toUpperCase()}]`;
-        if (level === 'error') {
-            console.error(prefix, message, error || '');
-        } else {
-            // Only log non-errors to console if in dev or explicit info
-            if (process.env.DEV === 'true' || level === 'info') {
-                console.log(prefix, message);
+    // Cleanup old logs
+    const cutoff = Date.now() - RETENTION_MS;
+    // Optimization: Only filter if array gets too big or periodically
+    if (logs.length > 5000 || (logs.length > 0 && logs[logs.length-1].timestamp.getTime() < cutoff)) {
+        let i = logs.length;
+        while (i--) {
+            if (logs[i].timestamp.getTime() < cutoff) {
+                logs.pop();
+            } else {
+                break; // Ordered by time desc, so we can stop
             }
         }
     }
+};
 
-    /**
-     * Helper for adding error logs
-     */
-    error(message, error, context = null) {
-        this.add('error', message, error, context);
-    }
-
-    /**
-     * Helper for adding info logs
-     */
-    info(message, context = null) {
-        this.add('info', message, null, context);
-    }
-
-    getLogs() {
-        return this.logs;
-    }
-
-    cleanup() {
-        const oneHourAgo = Date.now() - (60 * 60 * 1000);
-        const initialCount = this.logs.length;
-        this.logs = this.logs.filter(log => new Date(log.timestamp).getTime() > oneHourAgo);
-        
-        if (initialCount !== this.logs.length && process.env.DEV === 'true') {
-            console.log(`[Logger] Cleaned up ${initialCount - this.logs.length} old logs.`);
+// Periodic cleanup every 10 minutes
+setInterval(() => {
+    const cutoff = Date.now() - RETENTION_MS;
+    let i = logs.length;
+    while (i--) {
+        if (logs[i].timestamp.getTime() < cutoff) {
+            logs.pop();
+        } else {
+            break;
         }
     }
-}
+}, 10 * 60 * 1000);
 
-export const Logger = new LoggerService();
+import crypto from 'crypto';
