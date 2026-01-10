@@ -91,7 +91,7 @@ app.post('/api/streamers/manual', requireAuth, async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// NEW: Force Bot Subs Retry
+// Force Bot Subs Retry
 app.post('/api/streamers/:id/force-bot-subs', requireAuth, async (req, res) => {
     try {
         const streamer = await Token.findOne({ twitchId: req.params.id, type: 'streamer' });
@@ -111,12 +111,30 @@ app.get('/api/bot', requireAuth, async (req, res) => {
   const botToken = await Token.findOne({ type: 'bot' }).select('login twitchId');
   res.json(botToken);
 });
+
+// Get All Subscriptions
 app.get('/api/subscriptions', requireAuth, async (req, res) => {
     try {
         const subs = await service.getAdminSubscriptions();
         res.json({ data: subs });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// Get Subscriptions For specific Channel
+app.get('/api/subscriptions/:id', requireAuth, async (req, res) => {
+    try {
+        const subs = await service.getAdminSubscriptions();
+        const streamerId = req.params.id;
+        const filtered = subs.filter(s => 
+            s.condition.broadcaster_user_id === streamerId || 
+            s.condition.moderator_user_id === streamerId || 
+            s.condition.user_id === streamerId ||
+            s.condition.to_broadcaster_user_id === streamerId
+        );
+        res.json({ data: filtered });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/status', requireAuth, (req, res) => {
     res.json({ channels: service.getJoinedChannels(), ircConnected: service.client ? service.client.isConnected : false });
 });

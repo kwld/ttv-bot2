@@ -1,0 +1,336 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Bot Server Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+      body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
+      ::-webkit-scrollbar { width: 8px; }
+      ::-webkit-scrollbar-track { background: #1e293b; }
+      ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: #475569; }
+      .fade-in { animation: fadeIn 0.3s ease-in-out; }
+      @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- LOGIN SCREEN -->
+    <div id="loginScreen" class="fixed inset-0 z-50 bg-[#0f111a] flex items-center justify-center">
+        <div class="bg-[#1a1f29] border border-slate-700 w-full max-w-md p-8 rounded-2xl shadow-2xl">
+            <h1 class="text-2xl font-black text-white text-center mb-6 uppercase tracking-widest flex items-center justify-center gap-3">
+                <i class="fas fa-shield-alt text-indigo-500"></i> Server Admin
+            </h1>
+            <form id="loginForm" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Super User ID (Twitch ID)</label>
+                    <input type="text" id="adminId" class="w-full bg-[#0d1117] border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors" placeholder="e.g. 123456" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
+                    <input type="password" id="adminPass" class="w-full bg-[#0d1117] border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-500 transition-colors" required>
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg uppercase tracking-wider transition-all shadow-lg shadow-indigo-600/20">
+                    Login
+                </button>
+                <div id="loginError" class="text-red-500 text-xs text-center font-bold hidden">Invalid Credentials</div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD -->
+    <div id="dashboard" class="flex-1 flex flex-col hidden opacity-0 transition-opacity duration-300 h-full">
+        <header class="bg-[#1a1f29] border-b border-slate-800 p-6 flex justify-between items-center shrink-0">
+            <div class="flex items-center gap-4">
+                <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg"><i class="fas fa-server text-white"></i></div>
+                <div>
+                    <h1 class="text-xl font-black text-white tracking-tight uppercase">Admin Console</h1>
+                    <p class="text-xs text-slate-500 font-bold uppercase tracking-widest" id="statusLine">Connecting...</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="logout()" class="px-4 py-2 bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg text-xs font-bold uppercase tracking-wider transition-all border border-slate-700 hover:border-red-500/50">
+                    Logout
+                </button>
+            </div>
+        </header>
+
+        <main class="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+            
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="bg-[#1a1f29] border border-slate-700 rounded-2xl p-6 shadow-lg">
+                    <div class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Bot Status</div>
+                    <div class="flex items-center gap-3">
+                        <div id="botIndicator" class="w-3 h-3 rounded-full bg-red-500"></div>
+                        <span id="botName" class="text-xl font-black text-white">Offline</span>
+                    </div>
+                </div>
+                <div class="bg-[#1a1f29] border border-slate-700 rounded-2xl p-6 shadow-lg">
+                    <div class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Connected Streamers</div>
+                    <div class="flex items-center gap-3">
+                        <i class="fas fa-users text-emerald-500 text-xl"></i>
+                        <span id="streamerCount" class="text-2xl font-black text-white">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manual Add Streamer -->
+            <div class="bg-[#1a1f29] border border-slate-700 rounded-2xl shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                        <i class="fas fa-plus-circle text-cyan-500"></i> Manual Streamer Add
+                    </h2>
+                </div>
+                <form id="manualAddForm" class="flex gap-2">
+                    <input id="manualUsername" type="text" class="flex-1 bg-[#0d1117] border border-slate-700 rounded-lg px-4 py-2 text-sm text-white" placeholder="Twitch Username" required>
+                    <button type="submit" class="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2 rounded-lg font-bold uppercase text-xs">Add</button>
+                </form>
+            </div>
+
+            <!-- Streamers Table -->
+            <div class="bg-[#1a1f29] border border-slate-700 rounded-2xl shadow-lg overflow-hidden flex flex-col">
+                <div class="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center shrink-0">
+                    <h3 class="text-sm font-black text-white uppercase tracking-widest">Connected Streamers</h3>
+                    <button onclick="loadStreamers()" class="text-xs text-indigo-400 hover:text-white transition-colors font-bold uppercase px-3 py-1.5"><i class="fas fa-sync mr-1"></i> Refresh</button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-800/50 text-[10px] uppercase font-black text-slate-500 tracking-widest sticky top-0 backdrop-blur-md">
+                            <tr>
+                                <th class="px-6 py-3 w-10"></th> <!-- Expand Arrow -->
+                                <th class="px-6 py-3">User</th>
+                                <th class="px-6 py-3">ID</th>
+                                <th class="px-6 py-3 text-center">Type</th>
+                                <th class="px-6 py-3 text-center">Auth Date</th>
+                                <th class="px-6 py-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="streamersTableBody" class="divide-y divide-slate-800 text-xs text-slate-300"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- SCRIPT SECTION -->
+    <script>
+        const API_BASE = '/api';
+        let token = localStorage.getItem('gateway_admin_token');
+
+        function showDashboard() {
+            document.getElementById('loginScreen').classList.add('hidden');
+            const dash = document.getElementById('dashboard');
+            dash.classList.remove('hidden');
+            setTimeout(() => dash.classList.remove('opacity-0'), 50);
+            loadBotStatus();
+            loadStreamers();
+        }
+
+        function logout() {
+            localStorage.removeItem('gateway_admin_token');
+            location.reload();
+        }
+
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) headers['Authorization'] = `Bearer ${token}`; // Wait, this gateway uses cookie session for admin usually, but we added bearer logic in server.js? No, the server.js uses Session for admin. 
+            // Wait, the new server.js from Turn 2 uses headers logic if session missing? 
+            // Actually, `requireAuth` uses `req.session.isAdmin`.
+            // So we rely on cookie.
+            
+            const res = await fetch(`${API_BASE}${endpoint}`, { method, headers, body: body ? JSON.stringify(body) : null });
+            if (res.status === 401) { logout(); return null; }
+            return res.json();
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const password = document.getElementById('adminPass').value;
+            // The logic in server.js for /api/login expects {password} only, ignoring ID usually, but code says `if (req.body.password === process.env.ADMIN_PASSWORD)`
+            try {
+                const res = await fetch(`${API_BASE}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+                if (res.ok) {
+                    showDashboard();
+                } else { document.getElementById('loginError').classList.remove('hidden'); }
+            } catch (e) { document.getElementById('loginError').classList.remove('hidden'); }
+        });
+
+        document.getElementById('manualAddForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('manualUsername').value;
+            const btn = e.target.querySelector('button');
+            const originalText = btn.innerText;
+            btn.innerText = '...';
+            await apiCall('/streamers/manual', 'POST', { username });
+            document.getElementById('manualUsername').value = '';
+            btn.innerText = originalText;
+            loadStreamers();
+        });
+
+        async function loadBotStatus() {
+            const botData = await apiCall('/bot');
+            const indicator = document.getElementById('botIndicator');
+            const nameEl = document.getElementById('botName');
+            const statusLine = document.getElementById('statusLine');
+
+            if (botData) {
+                indicator.className = 'w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_10px_#10b981]';
+                nameEl.innerText = botData.login;
+                statusLine.innerText = "Gateway Operational";
+                statusLine.className = "text-xs text-emerald-500 font-bold uppercase tracking-widest";
+            } else {
+                indicator.className = 'w-3 h-3 rounded-full bg-red-500 animate-pulse';
+                nameEl.innerText = 'Not Authenticated';
+                statusLine.innerText = "Bot Token Missing";
+            }
+        }
+
+        async function loadStreamers() {
+            const streamers = await apiCall('/streamers');
+            const tbody = document.getElementById('streamersTableBody');
+            tbody.innerHTML = '';
+            
+            document.getElementById('streamerCount').innerText = streamers ? streamers.length : 0;
+
+            if (!streamers || streamers.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500 italic">No streamers connected.</td></tr>';
+                return;
+            }
+
+            streamers.forEach(s => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-800/30 transition-colors group';
+                tr.innerHTML = `
+                    <td class="px-6 py-3 text-center">
+                        <button onclick="toggleSubs('${s.twitchId}')" class="text-slate-500 hover:text-white transition-colors" title="Show Subscriptions">
+                            <i id="icon-subs-${s.twitchId}" class="fas fa-chevron-right text-xs transition-transform duration-200"></i>
+                        </button>
+                    </td>
+                    <td class="px-6 py-3 font-bold text-white flex items-center gap-3">
+                         ${s.avatar ? `<img src="${s.avatar}" class="w-6 h-6 rounded-full border border-slate-600" />` : ''}
+                         ${s.displayName || s.login}
+                    </td>
+                    <td class="px-6 py-3 font-mono text-slate-500">${s.twitchId}</td>
+                    <td class="px-6 py-3 text-center">
+                        <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase ${s.isManual ? 'bg-amber-500/20 text-amber-400' : 'bg-purple-500/20 text-purple-400'}">
+                            ${s.isManual ? 'MANUAL' : 'OAUTH'}
+                        </span>
+                    </td>
+                    <td class="px-6 py-3 text-center text-slate-400">${new Date(s.obtainedAt).toLocaleDateString()}</td>
+                    <td class="px-6 py-3 text-right flex justify-end gap-2">
+                        <button onclick="forceBotSubs('${s.twitchId}')" class="text-xs bg-amber-600/20 text-amber-500 hover:bg-amber-600 hover:text-white px-2 py-1 rounded border border-amber-500/30 transition-all" title="Retry Subscriptions using Bot Token">
+                           <i class="fas fa-robot"></i> Retry Bot Subs
+                        </button>
+                        ${!s.isManual ? `<button onclick="refreshToken('${s.twitchId}')" class="text-xs text-blue-400 hover:text-white px-2" title="Refresh Token"><i class="fas fa-sync"></i></button>` : ''}
+                        <button onclick="deleteStreamer('${s.twitchId}')" class="text-xs text-red-500/70 hover:text-red-500 px-2" title="Remove"><i class="fas fa-trash"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+
+                // Hidden Subscriptions Row
+                const subTr = document.createElement('tr');
+                subTr.id = `subs-row-${s.twitchId}`;
+                subTr.className = 'hidden bg-slate-900/50';
+                subTr.innerHTML = `
+                    <td colspan="6" class="px-6 py-4">
+                        <div class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 flex justify-between">
+                            <span>Active EventSub Subscriptions</span>
+                            <button onclick="loadSubsForStreamer('${s.twitchId}')" class="text-indigo-400 hover:text-white"><i class="fas fa-sync"></i> Refresh</button>
+                        </div>
+                        <div id="subs-content-${s.twitchId}" class="flex flex-wrap gap-2 text-xs text-slate-400 italic">
+                            Loading...
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(subTr);
+            });
+        }
+
+        async function toggleSubs(twitchId) {
+            const row = document.getElementById(`subs-row-${twitchId}`);
+            const icon = document.getElementById(`icon-subs-${twitchId}`);
+            
+            if (row.classList.contains('hidden')) {
+                row.classList.remove('hidden');
+                icon.classList.add('rotate-90');
+                loadSubsForStreamer(twitchId);
+            } else {
+                row.classList.add('hidden');
+                icon.classList.remove('rotate-90');
+            }
+        }
+
+        async function loadSubsForStreamer(twitchId) {
+            const container = document.getElementById(`subs-content-${twitchId}`);
+            container.innerHTML = '<span class="animate-pulse">Fetching...</span>';
+            
+            const res = await apiCall(`/subscriptions/${twitchId}`);
+            if (res && res.data) {
+                if (res.data.length === 0) {
+                    container.innerHTML = 'No active subscriptions found.';
+                    return;
+                }
+                
+                container.innerHTML = res.data.map(sub => {
+                    let statusColor = 'bg-slate-800 text-slate-400';
+                    if (sub.status === 'enabled') statusColor = 'bg-emerald-900/50 text-emerald-400 border border-emerald-500/30';
+                    else if (sub.status.includes('fail')) statusColor = 'bg-red-900/50 text-red-400 border border-red-500/30';
+
+                    return `
+                        <div class="px-2 py-1 rounded ${statusColor} flex items-center gap-2 shadow-sm">
+                            <span class="font-bold">${sub.type}</span>
+                            <span class="text-[9px] opacity-70 uppercase">${sub.status.replace('webhook_callback_verification_', '')}</span>
+                            ${sub.condition.moderator_user_id ? '<i class="fas fa-robot text-[8px]" title="Bot Mod"></i>' : ''}
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                container.innerHTML = 'Failed to load.';
+            }
+        }
+
+        async function forceBotSubs(id) {
+            if(!confirm("Attempt to re-subscribe using Bot Token? Use this if you see 403 Forbidden errors.")) return;
+            const btn = event.target.closest('button');
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-circle-notch animate-spin"></i> Processing...';
+            
+            await apiCall(`/streamers/${id}/force-bot-subs`, 'POST');
+            
+            btn.innerHTML = '<i class="fas fa-check"></i> Done';
+            setTimeout(() => { 
+                btn.innerHTML = original;
+                // Auto-expand to show results
+                const row = document.getElementById(`subs-row-${id}`);
+                if (row.classList.contains('hidden')) toggleSubs(id);
+                else loadSubsForStreamer(id);
+            }, 1500);
+        }
+
+        async function deleteStreamer(id) {
+            if(confirm("Remove this streamer?")) {
+                await apiCall(`/streamers/${id}`, 'DELETE');
+                loadStreamers();
+            }
+        }
+
+        async function refreshToken(id) {
+            await apiCall(`/streamers/${id}/refresh`, 'POST');
+            loadStreamers();
+        }
+
+        // Check auth on load
+        fetch('/api/check-auth').then(res => res.json()).then(data => {
+            if (data.isAdmin) showDashboard();
+        });
+
+    </script>
+</body>
+</html>
