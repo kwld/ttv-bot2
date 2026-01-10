@@ -432,7 +432,7 @@ export class TwitchService {
   }
 
   async cleanupOrphanedSubscriptions() {
-    if (IS_DEV) console.log('[EventSub] Scanning for orphaned/broken subscriptions...');
+    console.log('[EventSub] Scanning for orphaned/broken subscriptions...');
     try {
       const appToken = await this.getAppAccessToken();
       const allSubs = await this.getAllSubscriptions(appToken);
@@ -440,6 +440,8 @@ export class TwitchService {
       const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
       const currentCallback = `${publicUrl}/webhooks/callback`;
       
+      console.log(`[EventSub] Found ${allSubs.length} total active subscriptions.`);
+
       let deletedCount = 0;
       for (const sub of allSubs) {
         const isWebhook = sub.transport.method === 'webhook';
@@ -632,6 +634,7 @@ export class TwitchService {
              const requiredScope = SCOPE_REQUIREMENTS[def.type];
              // If manual, we skip scope check because manual has no scopes, but we already filtered the definitions list above
              if (!streamerToken.isManual && requiredScope && (!streamerToken.scope || !streamerToken.scope.includes(requiredScope))) {
+                 if (IS_DEV) console.log(`[EventSub] Skipping ${def.type} for ${streamerToken.login}: Missing scope ${requiredScope}`);
                  continue; 
              }
         }
