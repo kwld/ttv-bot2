@@ -63,23 +63,9 @@ const getExecutor = (channelId, channelName) => {
 
             if (botClient && botClient.isConnected) {
                 botClient.say(target, msg);
-                // Echo back to frontend as "Self" message so it appears in chat immediately
-                const botUser = { id: 'bot', username: 'bot', displayName: 'Bot' }; 
-                broadcastToUser(channelId, { 
-                    type: 'CHAT_MESSAGE', 
-                    payload: {
-                        id: crypto.randomUUID(),
-                        provider: 'twitch',
-                        channelId: channelId,
-                        channelName: target,
-                        text: msg,
-                        user: botUser,
-                        timestamp: Date.now(),
-                        isLive: true,
-                        isBot: true,
-                        isSelf: true
-                    }
-                });
+                // DO NOT ECHO BACK TO FRONTEND HERE
+                // The frontend has its own TMI client listening to chat.
+                // Broadcasting here causes duplication.
             } else {
                 if (IS_DEV) console.warn(`[Bot] Cannot say message. Client connected: ${botClient?.isConnected}, Target: ${target}`);
             }
@@ -226,6 +212,7 @@ export const announceChannelState = async (channelName) => {
 
     if (IS_DEV) console.log(`[Bot] Announcing state for #${channelName} (ID: ${channelId}). Commands: ${channelCommands.length}`);
 
+    // System messages are okay to broadcast as they don't duplicate TMI chat
     broadcastToUser(channelId, {
         type: 'CHAT_MESSAGE',
         payload: {
@@ -273,6 +260,8 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
     }
 
     // 2. Broadcast to Frontend (Mirroring)
+    // DISABLED: Preventing chat duplication on frontend. Frontend TMI should handle display.
+    /*
     if (!forcedEventType || forcedEventType === 'CHAT') {
          broadcastToUser(channelOwnerId, { 
              type: 'CHAT_MESSAGE', 
@@ -289,6 +278,7 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
              }
          });
     }
+    */
 
     // Clean invisible characters including ZWSP, LRM, RLM, and the weird 034F
     // \p{C} - Other (Control, Format, etc)

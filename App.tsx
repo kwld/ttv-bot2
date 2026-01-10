@@ -459,18 +459,14 @@ const App: React.FC = () => {
           } : undefined
       };
 
+      // --- OPTIMISTIC UI UPDATE ---
+      // Always add message locally first to ensure user sees it immediately
+      setMessages(prev => [...prev.slice(-49), chatMsg]);
+
       // --- PRIORITY SEND VIA LOCAL CLIENT ---
       // If the local TMI client is connected, use it to send the message.
-      // This applies to BOTH Serverless AND Server mode if the user is connected locally.
       if (twitchClientRef.current && twitchClientRef.current.isConnected && targetChannel.provider === 'twitch' && targetChannel.mode !== 'testing') {
            twitchClientRef.current.say(targetChannel.name, text, replyTo ? { replyToId: replyTo.id } : {});
-           
-           // Inject local message immediately for instant feedback
-           // Server Bridge will eventually send it too, but ID dedup handles that.
-           // However, local sending generates a temporary ID or none, while server/IRC echo has real ID.
-           // We'll let the IRC ECHO (via handleIncomingMessage) handle the display to ensure consistency, 
-           // but adding it here optimistically is good UX if we handle replacement.
-           // For now, we rely on the echo from TMI.js (onMessage event) which we capture.
       } 
       else if (targetChannel.mode === 'server') {
           // If local client is NOT connected but we are in server mode, send via bridge.
@@ -482,9 +478,6 @@ const App: React.FC = () => {
               addBotMessage("❌ Cannot send: Server disconnected & Client offline.", 'twitch', targetChannel.id, false, true, { level: 'error' });
           }
       } else {
-          // LOCAL/SIM MODE: Add immediately for feedback
-          setMessages(prev => [...prev.slice(-49), chatMsg]);
-
           if (targetChannel.mode === 'testing') {
               if (localEngineRef.current) {
                   localEngineRef.current.registerUser(user);
