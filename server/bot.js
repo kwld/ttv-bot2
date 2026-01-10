@@ -471,6 +471,54 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
     }
 };
 
+const fetchInitialLiveStatus = async () => {
+    try {
+        const botAuth = await AuthModel.findOne({ isBot: true });
+        if (!botAuth) return;
+
+        const settings = await ChannelSettingsModel.find({ botEnabled: true });
+        const logins = new Set();
+
+        for (const s of settings) {
+            let name = s.channelName;
+            if (!name && usersDB[s.channelId]) name = usersDB[s.channelId].username;
+            if (name) logins.add(name);
+        }
+
+        const loginArray = Array.from(logins);
+        if (loginArray.length === 0) return;
+
+        if (IS_DEV) console.log(`[Bot] Checking live status for ${loginArray.length} channels...`);
+
+        // Batch 100
+        for (let i = 0; i < loginArray.length; i += 100) {
+            const chunk = loginArray.slice(i, i + 100);
+            const query = chunk.map(l => `user_login=${encodeURIComponent(l)}`).join('&');
+            
+            const res = await fetch(`https://api.twitch.tv/helix/streams?${query}`, {
+                headers: {
+                    'Client-ID': process.env.TWITCH_CLIENT_ID,
+                    'Authorization': `Bearer ${botAuth.accessToken}`
+                }
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                if (data.data) {
+                    data.data.forEach(stream => {
+                        if (stream.type === 'live') {
+                            cachedLiveStreams.add(stream.user_login.toLowerCase());
+                            if (IS_DEV) console.log(`[Bot] Detected LIVE during startup: ${stream.user_login}`);
+                        }
+                    });
+                }
+            }
+        }
+    } catch (e) {
+        console.error("[Bot] Failed to fetch initial live status:", e);
+    }
+};
+
 export const checkStreamsAndManageConnection = async () => {
     if (!botClient || !botClient.isConnected || !botClient.isIrcConnected) {
         return;
@@ -531,9 +579,9 @@ export const checkStreamsAndManageConnection = async () => {
 
 export const syncGatewayChannels = async () => {
     if (IS_DEV) console.log('[Bot] Initial Channel Sync...');
-    setTimeout(() => {
-        checkStreamsAndManageConnection();
-    }, 1000);
+    // Initial Live Check before making join decisions
+    await fetchInitialLiveStatus();
+    checkStreamsAndManageConnection();
 };
 
 export function initBot(botAuth) {

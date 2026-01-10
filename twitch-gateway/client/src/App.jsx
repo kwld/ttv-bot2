@@ -588,6 +588,39 @@ const SubscriptionsTable = ({ subscriptions, streamers }) => {
     );
 };
 
+const ActiveConnectionsPanel = ({ status }) => {
+    const channels = status?.channels || [];
+    const connected = status?.ircConnected;
+
+    return (
+        <div className="bg-gray-800 rounded-lg shadow-lg border border-gray-700 mb-8">
+            <div className="p-4 bg-gray-800 border-b border-gray-700 rounded-t-lg flex justify-between items-center">
+                <h3 className="font-bold text-gray-200 flex items-center gap-2">
+                    Active Chat Connections
+                    <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                </h3>
+                <div className="text-sm text-gray-400">
+                    Count: {channels.length}
+                </div>
+            </div>
+            <div className="p-4">
+                {channels.length === 0 ? (
+                    <div className="text-gray-500 text-sm italic">No active channels connected.</div>
+                ) : (
+                    <div className="flex flex-wrap gap-2">
+                        {channels.map(channel => (
+                            <span key={channel} className="px-3 py-1 bg-gray-750 text-gray-300 rounded border border-gray-600 text-sm flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                                {channel}
+                            </span>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const App = () => {
   const [authStatus, setAuthStatus] = useState({ 
       authenticated: false, 
@@ -600,6 +633,7 @@ const App = () => {
   const [streamers, setStreamers] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
   const [bot, setBot] = useState(null);
+  const [status, setStatus] = useState(null); // Gateway Status (IRC + Channels)
   const [loading, setLoading] = useState(true);
 
   // Modal State
@@ -639,10 +673,11 @@ const App = () => {
     
     setLoading(true);
     try {
-      const [botRes, streamersRes, subsRes] = await Promise.all([
+      const [botRes, streamersRes, subsRes, statusRes] = await Promise.all([
         fetch('/api/bot'),
         fetch('/api/streamers'),
-        fetch('/api/subscriptions')
+        fetch('/api/subscriptions'),
+        fetch('/api/status') // New endpoint
       ]);
       
       if(botRes.status === 401) {
@@ -654,10 +689,12 @@ const App = () => {
       const botData = await botRes.json();
       const streamersData = await streamersRes.json();
       const subsData = await subsRes.json();
+      const statusData = await statusRes.json();
       
       setBot(botData);
       setStreamers(streamersData);
       setSubscriptions(subsData);
+      setStatus(statusData);
     } catch (error) {
       console.error("Failed to fetch data", error);
     } finally {
@@ -847,6 +884,8 @@ const App = () => {
                             </div>
                         </section>
                     </div>
+
+                    <ActiveConnectionsPanel status={status} />
 
                     <section className="mb-8">
                         <SubscriptionsTable subscriptions={subscriptions} streamers={streamers} />

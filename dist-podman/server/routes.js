@@ -637,8 +637,23 @@ router.get('/api/admin/status', adminAuth, async (req, res) => {
             }
         });
         let activeChannels = 0;
-        if (botClient && botClient.isConnected) activeChannels = botClient.channels.size;
-        res.json({ bot: { username: "Gateway" }, isConnected: botClient ? botClient.isConnected : false, activeChannels: activeChannels, stats: { totalUsers: userCount }, channels: list, dbConnected: isDBConnected });
+        let gatewayChannels = [];
+        
+        // Use botClient (GatewayClient) to get actual joined channels list
+        if (botClient && botClient.isConnected) {
+            activeChannels = botClient.channels.size;
+            gatewayChannels = Array.from(botClient.channels);
+        }
+        
+        res.json({ 
+            bot: { username: "Gateway" }, 
+            isConnected: botClient ? botClient.isConnected : false, 
+            activeChannels: activeChannels,
+            gatewayChannels: gatewayChannels, // Include list for UI
+            stats: { totalUsers: userCount }, 
+            channels: list, 
+            dbConnected: isDBConnected 
+        });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

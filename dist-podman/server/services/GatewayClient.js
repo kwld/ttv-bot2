@@ -177,6 +177,15 @@ export class GatewayClient {
             }
             return;
         }
+        
+        // --- CHANNELS LIST UPDATE (NEW) ---
+        if (type === 'GATEWAY_CHANNELS') {
+            if (payload.channels && Array.isArray(payload.channels)) {
+                this.channels.clear();
+                payload.channels.forEach(c => this.channels.add(c.toLowerCase()));
+            }
+            return;
+        }
 
         // Handle direct system logs from Gateway (e.g., IRC Joins)
         if (type === 'SYSTEM_LOG' && message) {

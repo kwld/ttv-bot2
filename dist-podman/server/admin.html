@@ -105,6 +105,19 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- Gateway State Viewer (New) -->
+             <div class="bg-[#1a1f29] border border-slate-700 rounded-2xl shadow-lg p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                        <i class="fas fa-network-wired text-purple-500"></i> Gateway Connection State (Debug)
+                    </h2>
+                    <span id="gatewayCount" class="text-xs font-mono text-slate-500">Count: 0</span>
+                </div>
+                <div id="gatewayChannelsList" class="flex flex-wrap gap-2 max-h-[150px] overflow-y-auto p-2 bg-slate-900/50 rounded border border-slate-800">
+                    <span class="text-xs text-slate-500 italic">Waiting for update...</span>
+                </div>
+            </div>
 
             <!-- EventSub Subscriptions (New) -->
             <div class="bg-[#1a1f29] border border-slate-700 rounded-2xl shadow-lg p-6">
@@ -379,6 +392,21 @@
 
             chansEl.innerText = `Active Channels: ${data.activeChannels}`;
             usersEl.innerText = data.stats.totalUsers;
+            
+            // --- Update Gateway Channels Viewer ---
+            const gatewayDiv = document.getElementById('gatewayChannelsList');
+            const gatewayCount = document.getElementById('gatewayCount');
+            
+            if (data.gatewayChannels && data.gatewayChannels.length > 0) {
+                 gatewayDiv.innerHTML = data.gatewayChannels.map(ch => 
+                     `<span class="px-2 py-1 rounded bg-slate-800 text-indigo-400 text-xs font-mono border border-slate-700">${ch}</span>`
+                 ).join('');
+                 gatewayCount.innerText = `Count: ${data.gatewayChannels.length}`;
+            } else {
+                 gatewayDiv.innerHTML = '<span class="text-xs text-slate-500 italic">No channels reported by Gateway.</span>';
+                 gatewayCount.innerText = 'Count: 0';
+            }
+            // ----------------------------------------
 
             const tbody = document.getElementById('channelsTableBody');
             tbody.innerHTML = '';

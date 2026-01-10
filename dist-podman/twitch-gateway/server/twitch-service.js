@@ -12,6 +12,14 @@ export class TwitchService {
     this.botUserId = null;
   }
 
+  // Helper to broadcast current state
+  broadcastChannelList() {
+      if (this.gateway && this.client) {
+          const channels = Array.from(this.client.getJoinedChannels());
+          this.gateway.broadcast('GATEWAY_CHANNELS', { channels });
+      }
+  }
+
   async initialize() {
     // Ensure clean slate for client
     await this.disconnect();
@@ -47,12 +55,14 @@ export class TwitchService {
                 message: 'Connected to Twitch IRC.',
                 timestamp: new Date().toISOString()
             });
+            this.broadcastChannelList();
         }
       },
 
       onDisconnected: () => {
           if (this.gateway) {
               this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: false });
+              this.gateway.broadcast('GATEWAY_CHANNELS', { channels: [] });
           }
       },
 
@@ -64,6 +74,7 @@ export class TwitchService {
                   message: `🟢 Joined IRC: #${channel}`,
                   timestamp: new Date().toISOString()
               });
+              this.broadcastChannelList();
           }
       },
 
@@ -75,6 +86,7 @@ export class TwitchService {
                   message: `🔴 Parted IRC: #${channel}`,
                   timestamp: new Date().toISOString()
               });
+              this.broadcastChannelList();
           }
       },
 

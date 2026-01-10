@@ -185,6 +185,14 @@ app.get('/api/subscriptions', requireAuth, async (req, res) => {
     }
 });
 
+// NEW: Return active channels for gateway dashboard
+app.get('/api/status', requireAuth, (req, res) => {
+    res.json({
+        channels: service.getJoinedChannels(),
+        ircConnected: service.client ? service.client.isConnected : false
+    });
+});
+
 app.post('/api/streamers/:id/refresh', requireAuth, async (req, res) => {
   try {
     await service.refreshStreamerToken(req.params.id);
