@@ -373,9 +373,16 @@ app.get(AUTH_CALLBACK_PATH, async (req, res) => {
     );
 
     if (type === 'bot') {
-      await service.disconnect();
-      await service.initialize();
+      // FORCE RESTART FOR BOT AUTH
+      // This ensures a completely clean slate for the chat connection
+      console.log("[Auth] Bot re-authenticated. Restarting Gateway service...");
       res.redirect('/?success=true');
+      
+      // Allow response to flush before killing process
+      setTimeout(() => {
+          process.exit(0); 
+      }, 500);
+      
     } else {
       await service.setupEventSub(tokenDoc);
       
