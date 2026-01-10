@@ -24,6 +24,12 @@ const SCOPE_DEFINITIONS = [
     required: true
   },
   {
+    id: 'user:read:chat',
+    label: 'Read Chat',
+    description: 'Allows reading chat messages as the user (Fallback mode).',
+    required: true
+  },
+  {
     id: 'channel:bot',
     label: 'Chat Bot Access',
     description: 'Allows the bot to join chat and read messages without being a moderator.',
