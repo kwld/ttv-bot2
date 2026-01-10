@@ -463,15 +463,8 @@ export class EventSubService {
 
       // Retrieve Bot ID/Token for Chat Subscription
       let botTokenDoc = await Token.findOne({ type: 'bot' });
-      
-      if (botTokenDoc) {
-          if (SHOULD_LOG) console.log(`[EventSub] Bot Identity Found: ${botTokenDoc.login} (${botTokenDoc.twitchId})`);
-          if (botTokenDoc.isExpired()) {
-              console.log("[EventSub] Bot token expired, refreshing...");
-              botTokenDoc = await this.refreshToken(botTokenDoc);
-          }
-      } else {
-          console.warn("[EventSub] ⚠️ No Bot Identity found in DB. Chat/Follow events will fail.");
+      if (botTokenDoc && botTokenDoc.isExpired()) {
+          botTokenDoc = await this.refreshToken(botTokenDoc);
       }
 
       const appAccessToken = await this.getAppAccessToken();
@@ -499,10 +492,7 @@ export class EventSubService {
           }
 
           if (def.requiresBot) {
-              if (!botTokenDoc) {
-                  console.warn(`[EventSub] Skipping ${def.type} - Requires bot, but bot not found.`);
-                  continue;
-              }
+              if (!botTokenDoc) continue;
               condition.user_id = botTokenDoc.twitchId;
           }
 
@@ -520,10 +510,7 @@ export class EventSubService {
               return keysA.every(key => String(condition[key]) === String(sCond[key]));
           });
 
-          if (exists) {
-              // console.log(`[EventSub] ${def.type} already exists. Skipping.`);
-              continue;
-          }
+          if (exists) continue;
 
           // Prepare subscription payload
           const createParams = {
@@ -535,9 +522,9 @@ export class EventSubService {
 
           // --- SPECIAL LOGIC FOR CHAT MESSAGES ---
           if (def.type === 'channel.chat.message') {
-             console.log(`[EventSub] 1. Attempting ${def.type} for ${channelId} with APP Access Token...`);
              try {
                  // 1. Try with App Access Token first
+                 // This requires "channel:bot" scope granted via Client Credentials flow (rarely works for standard manual add)
                  await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', createParams, {
                     headers: {
                         'Client-ID': process.env.TWITCH_CLIENT_ID,
@@ -545,17 +532,15 @@ export class EventSubService {
                         'Content-Type': 'application/json'
                     }
                  });
-                 console.log(`[EventSub] ✅ Subscribed to ${def.type} via APP token`);
+                 console.log(`[EventSub] Subscribed to ${def.type} via APP token`);
                  continue;
              } catch (e) {
-                 console.warn(`[EventSub] ❌ App Token failed: ${e.response?.status} - ${e.response?.data?.message || e.message}`);
                  // If 403 Forbidden, it means App Token lacks permission.
                  // Fallback to Bot User Token (which usually has user:read:chat/user:bot)
                  if (e.response?.status !== 403) throw e;
              }
 
              // 2. Fallback: Bot User Token
-             console.log(`[EventSub] 2. Fallback to BOT User Token for ${def.type}...`);
              if (botTokenDoc) {
                  try {
                      await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', createParams, {
@@ -565,12 +550,12 @@ export class EventSubService {
                             'Content-Type': 'application/json'
                         }
                      });
-                     console.log(`[EventSub] ✅ Subscribed to ${def.type} via BOT token (Fallback)`);
+                     console.log(`[EventSub] Subscribed to ${def.type} via BOT token (Fallback)`);
                  } catch (e) {
-                     console.error(`[EventSub] ❌ Failed fallback for ${def.type}: ${e.response?.status} - ${JSON.stringify(e.response?.data || e.message)}`);
+                     if (e.response?.status !== 409) {
+                         console.error(`[EventSub] Failed fallback for ${def.type}`, e.response?.data || e.message);
+                     }
                  }
-             } else {
-                 console.error(`[EventSub] ❌ Cannot retry with Bot Token - Bot Identity missing.`);
              }
              continue;
           }
