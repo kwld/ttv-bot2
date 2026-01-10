@@ -481,7 +481,12 @@ export class EventSubService {
 
       try {
           const appAccessToken = await this.getAppAccessToken();
-          const allSubs = await this.getAllSubscriptions(appAccessToken);
+          
+          // 1. Fetch Subscription Lists Independently
+          // Subs created with App Token are visible via App Token
+          // Subs created with Bot User Token are visible via Bot User Token
+          const appSubs = await this.getAllSubscriptions(appAccessToken);
+          const botSubs = botTokenDoc ? await this.getAllSubscriptions(botTokenDoc.accessToken) : [];
 
           for (const def of definitions) {
               let condition = { broadcaster_user_id: channelId };
@@ -495,7 +500,11 @@ export class EventSubService {
                   condition.user_id = botTokenDoc.twitchId;
               }
 
-              const validSub = allSubs.find(s => {
+              // 2. Select list to check for existence
+              // If it's chat message, check both lists to avoid duplicates if one exists on either token.
+              const subsToCheck = def.type === 'channel.chat.message' ? [...appSubs, ...botSubs] : appSubs;
+
+              const validSub = subsToCheck.find(s => {
                   if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
                   if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
                   
@@ -508,27 +517,42 @@ export class EventSubService {
 
               if (validSub) continue;
 
-              // Use Bot User Token for chat messages to avoid 403 authorization error
-              // even for "Public" setup if we have a bot context
-              let accessToken = appAccessToken;
-              if (def.type === 'channel.chat.message' && botTokenDoc && botTokenDoc.accessToken) {
-                  accessToken = botTokenDoc.accessToken;
-              }
+              // 3. Create Subscription Helper
+              const createSub = async (token) => {
+                  await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
+                      type: def.type,
+                      version: def.version,
+                      condition: condition,
+                      transport: { method: 'webhook', callback: callbackUrl, secret: secret }
+                  }, {
+                      headers: {
+                          'Client-ID': process.env.TWITCH_CLIENT_ID,
+                          'Authorization': `Bearer ${token}`,
+                          'Content-Type': 'application/json'
+                      }
+                  });
+              };
 
               try {
-                await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
-                    type: def.type,
-                    version: def.version,
-                    condition: condition,
-                    transport: { method: 'webhook', callback: callbackUrl, secret: secret }
-                }, {
-                    headers: {
-                        'Client-ID': process.env.TWITCH_CLIENT_ID,
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
-                    }
-                });
-                if (SHOULD_LOG) console.log(`[EventSub] Subscribed to ${def.type} for ${channelId} (Public)`);
+                  // Special Fallback Logic for Chat Messages
+                  if (def.type === 'channel.chat.message') {
+                      try {
+                          await createSub(appAccessToken);
+                          if (SHOULD_LOG) console.log(`[EventSub] Subscribed to ${def.type} for ${channelId} (App Token)`);
+                      } catch (err) {
+                          if (err.response?.status === 403 && botTokenDoc) {
+                              if (SHOULD_LOG) console.log(`[EventSub] App Token failed (403) for ${def.type}, retrying with Bot User Token`);
+                              await createSub(botTokenDoc.accessToken);
+                              if (SHOULD_LOG) console.log(`[EventSub] Subscribed to ${def.type} for ${channelId} (Bot User Token)`);
+                          } else {
+                              throw err;
+                          }
+                      }
+                  } else {
+                      // Standard creation for other types
+                      await createSub(appAccessToken);
+                      if (SHOULD_LOG) console.log(`[EventSub] Subscribed to ${def.type} for ${channelId} (App Token)`);
+                  }
               } catch (subErr) {
                  if (subErr.response?.status !== 409) {
                     console.error(`[EventSub] Failed to setup public subs for ${channelId}: ${def.type}`, subErr.response?.data || subErr.message);
@@ -767,7 +791,7 @@ export class EventSubService {
     }
   }
 
-  async getAllSubscriptions(appAccessToken) {
+  async getAllSubscriptions(accessToken) {
     let subscriptions = [];
     let cursor = null;
     try {
@@ -776,7 +800,7 @@ export class EventSubService {
         const res = await axios.get('https://api.twitch.tv/helix/eventsub/subscriptions', {
           headers: {
             'Client-ID': process.env.TWITCH_CLIENT_ID,
-            'Authorization': `Bearer ${appAccessToken}`
+            'Authorization': `Bearer ${accessToken}`
           },
           params: reqParams
         });
