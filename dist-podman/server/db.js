@@ -89,6 +89,8 @@ const authSchema = new mongoose.Schema({
 const channelSettingsSchema = new mongoose.Schema({
   channelId: { type: String, required: true, unique: true },
   channelName: String, 
+  displayName: String, // Added
+  profileImageUrl: String, // Added
   editors: [{ 
       id: String, 
       username: String,

@@ -478,11 +478,16 @@ const updateLiveStatus = async () => {
 
         const settings = await ChannelSettingsModel.find({ botEnabled: true });
         const logins = new Set();
+        const settingsMap = new Map(); // Map login -> settings doc
 
         for (const s of settings) {
             let name = s.channelName;
             if (!name && usersDB[s.channelId]) name = usersDB[s.channelId].username;
-            if (name) logins.add(name);
+            if (name) {
+                const lower = name.toLowerCase();
+                logins.add(lower);
+                settingsMap.set(lower, s);
+            }
         }
 
         const loginArray = Array.from(logins);
@@ -508,20 +513,24 @@ const updateLiveStatus = async () => {
                 
                 if (data.data) {
                     data.data.forEach(stream => {
+                        const login = stream.user_login.toLowerCase();
                         if (stream.type === 'live') {
-                            const login = stream.user_login.toLowerCase();
                             liveNow.add(login);
                             if (!cachedLiveStreams.has(login)) {
                                 cachedLiveStreams.add(login);
                                 if (IS_DEV) console.log(`[Bot] Channel went LIVE (Poll): ${login}`);
                             }
                         }
+                        
+                        // Opportunistic Name Update
+                        const setting = settingsMap.get(login);
+                        if (setting && setting.channelName !== stream.user_name) {
+                            console.log(`[Bot] Updating case for ${login} -> ${stream.user_name}`);
+                            ChannelSettingsModel.updateOne({ _id: setting._id }, { channelName: stream.user_name }).exec();
+                        }
                     });
                 }
                 
-                // Cleanup: If channel was cached as live but not in this poll result, it might be offline
-                // BUT be careful: batching means we only check the current chunk.
-                // We should only remove items that ARE in the requested chunk but NOT in the result.
                 chunk.forEach(ch => {
                     const lower = ch.toLowerCase();
                     if (!liveNow.has(lower) && cachedLiveStreams.has(lower)) {
@@ -533,6 +542,56 @@ const updateLiveStatus = async () => {
         }
     } catch (e) {
         console.error("[Bot] Failed to update live status:", e);
+    }
+};
+
+const refreshChannelMetadata = async () => {
+    console.log('[Bot] Refreshing Channel Metadata (Names/Avatars)...');
+    try {
+        const botAuth = await AuthModel.findOne({ isBot: true });
+        if (!botAuth) {
+            console.log('[Bot] No Bot Token available for metadata refresh.');
+            return;
+        }
+
+        const settings = await ChannelSettingsModel.find({});
+        if (settings.length === 0) return;
+
+        const ids = settings.map(s => s.channelId).filter(id => /^\d+$/.test(id)); // Only valid Twitch numeric IDs
+        if (ids.length === 0) return;
+
+        // Batch IDs
+        for (let i = 0; i < ids.length; i += 100) {
+            const chunk = ids.slice(i, i + 100);
+            const query = chunk.map(id => `id=${id}`).join('&');
+            
+            const res = await fetch(`https://api.twitch.tv/helix/users?${query}`, {
+                headers: {
+                    'Client-ID': process.env.TWITCH_CLIENT_ID,
+                    'Authorization': `Bearer ${botAuth.accessToken}`
+                }
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                if (data.data) {
+                    for (const user of data.data) {
+                         // Bulk update for simplicity
+                         await ChannelSettingsModel.updateOne(
+                             { channelId: user.id },
+                             { 
+                                 channelName: user.display_name, // Use Display Name as primary name for UI consistency
+                                 displayName: user.display_name,
+                                 profileImageUrl: user.profile_image_url
+                             }
+                         );
+                    }
+                }
+            }
+        }
+        console.log('[Bot] Channel Metadata Refreshed.');
+    } catch (e) {
+        console.error('[Bot] Failed to refresh channel metadata:', e);
     }
 };
 
@@ -554,6 +613,7 @@ export const checkStreamsAndManageConnection = async () => {
     for (const s of settings) {
         if (s.botEnabled) {
              let lower = (s.channelName || '').toLowerCase();
+             // Try to resolve name from usersDB if missing in settings (fallback)
              if (!lower && usersDB[s.channelId]) {
                  lower = usersDB[s.channelId].username.toLowerCase();
              }
@@ -599,6 +659,8 @@ export const checkStreamsAndManageConnection = async () => {
 
 export const syncGatewayChannels = async () => {
     if (IS_DEV) console.log('[Bot] Initial Channel Sync...');
+    // Refresh names first to ensure we have correct logins for live checks
+    await refreshChannelMetadata();
     await checkStreamsAndManageConnection();
 };
 
@@ -630,4 +692,7 @@ export function initBot(botAuth) {
 
     // Poll streams every 2 minutes
     setInterval(checkStreamsAndManageConnection, 120000); 
+    
+    // Refresh Metadata every hour
+    setInterval(refreshChannelMetadata, 3600000);
 }

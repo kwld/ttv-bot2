@@ -179,7 +179,40 @@ app.get('/api/bot', requireAuth, async (req, res) => {
 app.get('/api/subscriptions', requireAuth, async (req, res) => {
     try {
         const subs = await service.getAdminSubscriptions();
-        res.json(subs);
+        
+        // --- HYDRATION LOGIC START ---
+        // Find subscription IDs that don't have a known streamer token
+        const knownStreamers = await Token.find({ type: 'streamer' }).select('twitchId');
+        const knownIds = new Set(knownStreamers.map(s => s.twitchId));
+        const unknownIds = new Set();
+        
+        subs.forEach(s => {
+            const uid = s.condition.broadcaster_user_id;
+            if (uid && !knownIds.has(uid)) {
+                unknownIds.add(uid);
+            }
+        });
+        
+        let extraUserInfo = {};
+        if (unknownIds.size > 0) {
+            const profiles = await service.getUsersByIds(Array.from(unknownIds));
+            extraUserInfo = profiles.reduce((acc, user) => {
+                acc[user.id] = {
+                    twitchId: user.id,
+                    login: user.login,
+                    displayName: user.display_name,
+                    avatar: user.profile_image_url
+                };
+                return acc;
+            }, {});
+        }
+        
+        res.json({
+            data: subs,
+            userInfo: extraUserInfo
+        });
+        // --- HYDRATION LOGIC END ---
+        
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -335,7 +368,7 @@ app.get('/auth/login/:type', (req, res) => {
 });
 
 app.get(AUTH_CALLBACK_PATH, async (req, res) => {
-  const { code, state, error } = req.query;
+  const { code, state, error, error_description } = req.query;
   
   if (error) return res.status(400).send(`Error: ${error}`);
   

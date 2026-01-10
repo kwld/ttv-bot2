@@ -421,10 +421,12 @@ const ProfileHoverCard = ({ anchorRect, streamer }) => {
                     <span>ID:</span>
                     <span className="font-mono text-gray-500">{streamer.twitchId}</span>
                     </div>
-                    <div className="flex justify-between">
-                    <span>Auth:</span>
-                    <span>{streamer.obtainedAt ? new Date(streamer.obtainedAt).toLocaleDateString() : 'Unknown'}</span>
-                    </div>
+                    {streamer.obtainedAt && (
+                        <div className="flex justify-between">
+                        <span>Auth:</span>
+                        <span>{new Date(streamer.obtainedAt).toLocaleDateString()}</span>
+                        </div>
+                    )}
                     {streamer.scope && (
                     <div className="mt-2 pt-2 border-t border-gray-700">
                         <div className="text-gray-500 mb-1">Active Scopes:</div>
@@ -441,7 +443,7 @@ const ProfileHoverCard = ({ anchorRect, streamer }) => {
     );
 };
 
-const SubscriptionsTable = ({ subscriptions, streamers }) => {
+const SubscriptionsTable = ({ subscriptions, streamers, userInfo }) => {
     const totalCost = subscriptions.reduce((sum, sub) => sum + (sub.cost || 0), 0);
     const maxCost = 10000;
     const usagePercent = (totalCost / maxCost) * 100;
@@ -454,9 +456,16 @@ const SubscriptionsTable = ({ subscriptions, streamers }) => {
         subscriptions.forEach(sub => {
             const userId = sub.condition.broadcaster_user_id || 'app';
             if (!groups[userId]) {
+                let streamerData = streamers.find(s => s.twitchId === userId);
+                
+                // Fallback to hydrated user info if missing in streamers list
+                if (!streamerData && userInfo && userInfo[userId]) {
+                    streamerData = userInfo[userId];
+                }
+
                 groups[userId] = {
                     userId,
-                    streamer: streamers.find(s => s.twitchId === userId),
+                    streamer: streamerData,
                     subs: [],
                     totalCost: 0
                 };
@@ -465,6 +474,7 @@ const SubscriptionsTable = ({ subscriptions, streamers }) => {
             groups[userId].totalCost += sub.cost;
         });
 
+        // Also add streamers who might not have subscriptions yet (rare)
         streamers.forEach(s => {
             if (!groups[s.twitchId]) {
                 groups[s.twitchId] = {
@@ -481,7 +491,7 @@ const SubscriptionsTable = ({ subscriptions, streamers }) => {
             if (!a.streamer && b.streamer) return 1;
             return 0;
         });
-    }, [subscriptions, streamers]);
+    }, [subscriptions, streamers, userInfo]);
 
     const handleMouseEnter = (e, streamer) => {
         if (!streamer) return;
@@ -529,7 +539,13 @@ const SubscriptionsTable = ({ subscriptions, streamers }) => {
                                                 onMouseEnter={(e) => handleMouseEnter(e, group.streamer)}
                                                 onMouseLeave={handleMouseLeave}
                                             >
-                                                {group.streamer.avatar && <img src={group.streamer.avatar} alt="" className="w-6 h-6 rounded-full" />}
+                                                {group.streamer.avatar ? (
+                                                     <img src={group.streamer.avatar} alt="" className="w-6 h-6 rounded-full" />
+                                                ) : (
+                                                     <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center text-[10px] text-white">
+                                                         {(group.streamer.displayName || group.streamer.login || '?').charAt(0)}
+                                                     </div>
+                                                )}
                                                 <span className="font-medium text-purple-400 hover:text-purple-300 transition-colors">
                                                     {group.streamer.displayName || group.streamer.login}
                                                 </span>
@@ -632,6 +648,7 @@ const App = () => {
   
   const [streamers, setStreamers] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
+  const [userInfo, setUserInfo] = useState({}); // New State
   const [bot, setBot] = useState(null);
   const [status, setStatus] = useState(null); // Gateway Status (IRC + Channels)
   const [loading, setLoading] = useState(true);
@@ -677,7 +694,7 @@ const App = () => {
         fetch('/api/bot'),
         fetch('/api/streamers'),
         fetch('/api/subscriptions'),
-        fetch('/api/status') // New endpoint
+        fetch('/api/status')
       ]);
       
       if(botRes.status === 401) {
@@ -693,7 +710,14 @@ const App = () => {
       
       setBot(botData);
       setStreamers(streamersData);
-      setSubscriptions(subsData);
+      // Support old and new format for subscriptions response
+      if (subsData.data) {
+          setSubscriptions(subsData.data);
+          setUserInfo(subsData.userInfo || {});
+      } else {
+          setSubscriptions(subsData);
+          setUserInfo({});
+      }
       setStatus(statusData);
     } catch (error) {
       console.error("Failed to fetch data", error);
@@ -888,7 +912,7 @@ const App = () => {
                     <ActiveConnectionsPanel status={status} />
 
                     <section className="mb-8">
-                        <SubscriptionsTable subscriptions={subscriptions} streamers={streamers} />
+                        <SubscriptionsTable subscriptions={subscriptions} streamers={streamers} userInfo={userInfo} />
                     </section>
                   </div>
                 </div>

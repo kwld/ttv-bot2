@@ -508,6 +508,7 @@ router.post('/api/admin/create-channel', adminAuth, async (req, res) => {
             { 
                 channelId,
                 channelName,
+                displayName: channelName, // Set default display name
                 botEnabled: true,
                 isLocked: true 
             },
@@ -633,7 +634,8 @@ router.get('/api/admin/status', adminAuth, async (req, res) => {
             const isLive = cachedLiveStreams.has(a.username.toLowerCase());
             list.push({ 
                 id: a.userId, 
-                name: a.username, 
+                name: settings ? (settings.displayName || settings.channelName || a.username) : a.username, 
+                profileImageUrl: settings ? settings.profileImageUrl : null,
                 authType: 'OAUTH', 
                 clientCount: userSockets.get(a.userId) ? userSockets.get(a.userId).size : 0, 
                 apiEnabled: settings ? settings.apiEnabled : false, 
@@ -646,11 +648,12 @@ router.get('/api/admin/status', adminAuth, async (req, res) => {
         
         channels.forEach(c => {
             if (!list.find(x => x.id === c.channelId)) {
-                const name = c.channelName || c.channelId;
-                const isLive = cachedLiveStreams.has(name.toLowerCase());
+                const name = c.displayName || c.channelName || c.channelId;
+                const isLive = cachedLiveStreams.has((c.channelName || c.channelId).toLowerCase());
                 list.push({ 
                     id: c.channelId, 
-                    name: c.channelName, 
+                    name: name, 
+                    profileImageUrl: c.profileImageUrl,
                     authType: 'MANUAL', 
                     clientCount: 0, 
                     apiEnabled: c.apiEnabled, 

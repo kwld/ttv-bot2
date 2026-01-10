@@ -276,6 +276,33 @@ export class TwitchService {
       throw e;
     }
   }
+  
+  async getUsersByIds(userIds) {
+      if (!userIds || userIds.length === 0) return [];
+      try {
+          const appToken = await this.getAppAccessToken();
+          const uniqueIds = [...new Set(userIds)];
+          const results = [];
+          
+          for (let i = 0; i < uniqueIds.length; i += 100) {
+              const chunk = uniqueIds.slice(i, i + 100);
+              const query = chunk.map(id => `id=${id}`).join('&');
+              const res = await axios.get(`https://api.twitch.tv/helix/users?${query}`, {
+                  headers: {
+                      'Client-ID': process.env.TWITCH_CLIENT_ID,
+                      'Authorization': `Bearer ${appToken}`
+                  }
+              });
+              if (res.data.data) {
+                  results.push(...res.data.data);
+              }
+          }
+          return results;
+      } catch (e) {
+          console.error("[TwitchService] Failed to fetch user info", e);
+          return [];
+      }
+  }
 
   async getAllSubscriptions(appAccessToken) {
     let subscriptions = [];
@@ -376,6 +403,13 @@ export class TwitchService {
         { type: 'stream.offline', version: '1' }
       ];
 
+      // Retrieve Bot ID for Chat Subscription (Automatically include chat for everyone)
+      let botTokenDoc = await Token.findOne({ type: 'bot' });
+      if (botTokenDoc) {
+          // Add Chat Subscription if we have a bot to listen
+          definitions.push({ type: 'channel.chat.message', version: '1', requiresBot: true });
+      }
+
       const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
       const secret = process.env.TWITCH_WEBHOOK_SECRET;
       const callbackUrl = `${publicUrl}/webhooks/callback`;
@@ -387,11 +421,22 @@ export class TwitchService {
           for (const def of definitions) {
               const condition = { broadcaster_user_id: channelId };
 
+              if (def.requiresBot) {
+                  if (!botTokenDoc) continue;
+                  condition.user_id = botTokenDoc.twitchId;
+              }
+
               // Check if already subscribed correctly
               const validSub = allSubs.find(s => {
                   if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
                   if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
-                  return s.condition.broadcaster_user_id === channelId;
+                  
+                  // Check condition matching
+                  const sCond = s.condition;
+                  const keysA = Object.keys(condition);
+                  const keysB = Object.keys(sCond);
+                  if (keysA.length !== keysB.length) return false;
+                  return keysA.every(key => String(condition[key]) === String(sCond[key]));
               });
 
               if (validSub) continue; // Already exists

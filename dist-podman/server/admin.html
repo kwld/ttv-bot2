@@ -426,7 +426,10 @@
                     const displayId = /^\d+$/.test(ch.id) ? ch.id : `<span class="text-amber-500 italic">${ch.id} (Pending Login)</span>`;
 
                     tr.innerHTML = `
-                        <td class="px-6 py-3 font-bold text-white">${ch.name} ${ch.authType === 'MANUAL' ? '<span class="text-[9px] text-slate-500 ml-2 font-normal">(Manual)</span>' : ''}</td>
+                        <td class="px-6 py-3 font-bold text-white flex items-center gap-2">
+                             ${ch.profileImageUrl ? `<img src="${ch.profileImageUrl}" class="w-6 h-6 rounded-full border border-slate-600" />` : ''}
+                             ${ch.name} ${ch.authType === 'MANUAL' ? '<span class="text-[9px] text-slate-500 font-normal">(Manual)</span>' : ''}
+                        </td>
                         <td class="px-6 py-3 font-mono text-slate-500">${displayId}</td>
                         <td class="px-6 py-3 text-center">${liveBadge}</td>
                         <td class="px-6 py-3 text-center">${botBadge}</td>
