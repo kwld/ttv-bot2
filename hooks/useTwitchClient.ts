@@ -92,8 +92,7 @@ export const useTwitchClient = ({
             
             // Allow connecting to ALL configured channels (Server AND Local) via local client
             // This enables "Client Mode" behavior (viewing/typing) even for Server-managed channels
-            // FIX: Exclude 'server' mode channels from local client handling to prevent duplicate messages
-            const relevantTwitchChannels = channelsRef.current.filter(c => c.provider === 'twitch' && c.mode !== 'server');
+            const relevantTwitchChannels = channelsRef.current.filter(c => c.provider === 'twitch');
 
             relevantTwitchChannels.forEach(c => {
                 const lower = c.name.toLowerCase();
@@ -202,7 +201,6 @@ export const useTwitchClient = ({
             onMessage: (msg: TwitchMessage) => {
                 const lowerChannel = msg.channel.toLowerCase();
                 // Ensure channel is marked as joined if we receive message
-                // Refactor: Use explicit state update to avoid potential type issues with Set.add return value
                 setActualJoinedChannels(prev => {
                     if (prev.has(lowerChannel)) return prev;
                     const next = new Set(prev);
@@ -252,7 +250,6 @@ export const useTwitchClient = ({
             },
             onUserJoin: (channel: string, username: string) => {
                 const lowerChannel = channel.toLowerCase();
-                // Refactor: Use explicit state update
                 setActualJoinedChannels(prev => {
                     if (prev.has(lowerChannel)) return prev;
                     const next = new Set(prev);

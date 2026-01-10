@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef, Suspense, useMemo } from 'react';
 import { Command, ChatMessage, User, ActionType, Provider, Channel, UserEntity, BadgeStyle, TextStyle, WaitingInfo, RepoCommand } from './types';
 import { TwitchChatClient, fetchTwitchUserProfile, getTwitchAuthUrl, fetchTwitchBadges, fetchTwitchUsers } from './services/twitchService';
@@ -378,17 +379,8 @@ const App: React.FC = () => {
     authenticatedUser,
     addBotMessage,
     handleIncomingMessage: (payload) => {
-        // Force add message to UI if coming from local Twitch Client (serverless mode)
+        // Force add message to UI if coming from local Twitch Client (serverless OR server with local join)
         if (payload.fromTwitchClient) {
-            // DUPLICATE PROTECTION:
-            // If the channel is in SERVER mode, we should ignore messages from the local TMI client
-            // because the Server Bridge is already sending them.
-            const ch = channels.find(c => c.id === payload.channelId);
-            if (ch && ch.mode === 'server') {
-                 // Skip adding this message locally as the server bridge will provide it
-                 return;
-            }
-
             const chatMsg: ChatMessage = {
                 id: payload.id || generateUUID(),
                 provider: 'twitch',
@@ -413,12 +405,20 @@ const App: React.FC = () => {
             };
 
             // STRICT DEDUPLICATION: Check if this message ID already exists
+            // This handles cases where both Local TMI and Server Bridge receive the same message
             setMessages(prev => {
                 if (prev.some(m => m.id === chatMsg.id)) return prev;
                 return [...prev.slice(-49), chatMsg];
             });
+            
+            // Only trigger local logic if NOT in server mode
+            const ch = channels.find(c => c.id === payload.channelId);
+            if (ch && ch.mode !== 'server') {
+                 handleIncomingMessage(payload);
+            }
+        } else {
+            handleIncomingMessage(payload);
         }
-        handleIncomingMessage(payload);
     },
     onAuthError: () => { setBotToken(null); localStorage.removeItem('gemini_bot_token'); },
     showJoinParts: true,
@@ -461,22 +461,21 @@ const App: React.FC = () => {
 
       // --- PRIORITY SEND VIA LOCAL CLIENT ---
       // If the local TMI client is connected, use it to send the message.
+      // This applies to BOTH Serverless AND Server mode if the user is connected locally.
       if (twitchClientRef.current && twitchClientRef.current.isConnected && targetChannel.provider === 'twitch' && targetChannel.mode !== 'testing') {
            twitchClientRef.current.say(targetChannel.name, text, replyTo ? { replyToId: replyTo.id } : {});
            
-           // FIX: Inject local message for Client Mode (Serverless) to ensure visibility
-           // Server Mode handles this via Gateway echo, so we skip it there.
-           if (targetChannel.mode === 'serverless') {
-                setMessages(prev => {
-                    // Check if message ID already exists (unlikely for new UUID, but good practice)
-                    if (prev.some(m => m.id === chatMsg.id)) return prev;
-                    return [...prev.slice(-49), chatMsg];
-                });
-                handleIncomingMessage({ ...chatMsg, message: text, isLogicOnly: true });
-           }
+           // Inject local message immediately for instant feedback
+           // Server Bridge will eventually send it too, but ID dedup handles that.
+           // However, local sending generates a temporary ID or none, while server/IRC echo has real ID.
+           // We'll let the IRC ECHO (via handleIncomingMessage) handle the display to ensure consistency, 
+           // but adding it here optimistically is good UX if we handle replacement.
+           // For now, we rely on the echo from TMI.js (onMessage event) which we capture.
       } 
       else if (targetChannel.mode === 'server') {
           // If local client is NOT connected but we are in server mode, send via bridge.
+          // This uses the Server's Bot account or the user's token via Gateway (if implemented).
+          // Currently ServerBridge sends via Gateway which sends as Bot.
           if (isBridgeConnected && serverBridgeRef.current) {
               serverBridgeRef.current.sendChat(targetChannel.id, text, user);
           } else {

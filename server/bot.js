@@ -471,7 +471,7 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
     }
 };
 
-const fetchInitialLiveStatus = async () => {
+const updateLiveStatus = async () => {
     try {
         const botAuth = await AuthModel.findOne({ isBot: true });
         if (!botAuth) return;
@@ -488,7 +488,7 @@ const fetchInitialLiveStatus = async () => {
         const loginArray = Array.from(logins);
         if (loginArray.length === 0) return;
 
-        if (IS_DEV) console.log(`[Bot] Checking live status for ${loginArray.length} channels...`);
+        if (IS_DEV) console.log(`[Bot] Polling live status for ${loginArray.length} channels...`);
 
         // Batch 100
         for (let i = 0; i < loginArray.length; i += 100) {
@@ -504,18 +504,35 @@ const fetchInitialLiveStatus = async () => {
 
             if (res.ok) {
                 const data = await res.json();
+                const liveNow = new Set();
+                
                 if (data.data) {
                     data.data.forEach(stream => {
                         if (stream.type === 'live') {
-                            cachedLiveStreams.add(stream.user_login.toLowerCase());
-                            if (IS_DEV) console.log(`[Bot] Detected LIVE during startup: ${stream.user_login}`);
+                            const login = stream.user_login.toLowerCase();
+                            liveNow.add(login);
+                            if (!cachedLiveStreams.has(login)) {
+                                cachedLiveStreams.add(login);
+                                if (IS_DEV) console.log(`[Bot] Channel went LIVE (Poll): ${login}`);
+                            }
                         }
                     });
                 }
+                
+                // Cleanup: If channel was cached as live but not in this poll result, it might be offline
+                // BUT be careful: batching means we only check the current chunk.
+                // We should only remove items that ARE in the requested chunk but NOT in the result.
+                chunk.forEach(ch => {
+                    const lower = ch.toLowerCase();
+                    if (!liveNow.has(lower) && cachedLiveStreams.has(lower)) {
+                         cachedLiveStreams.delete(lower);
+                         if (IS_DEV) console.log(`[Bot] Channel went OFFLINE (Poll): ${lower}`);
+                    }
+                });
             }
         }
     } catch (e) {
-        console.error("[Bot] Failed to fetch initial live status:", e);
+        console.error("[Bot] Failed to update live status:", e);
     }
 };
 
@@ -524,6 +541,9 @@ export const checkStreamsAndManageConnection = async () => {
         return;
     }
     
+    // Always refresh status before decision making to fix "parting while live" bugs
+    await updateLiveStatus();
+
     const settings = await ChannelSettingsModel.find({});
 
     // Create a Set of desired channels
@@ -579,9 +599,7 @@ export const checkStreamsAndManageConnection = async () => {
 
 export const syncGatewayChannels = async () => {
     if (IS_DEV) console.log('[Bot] Initial Channel Sync...');
-    // Initial Live Check before making join decisions
-    await fetchInitialLiveStatus();
-    checkStreamsAndManageConnection();
+    await checkStreamsAndManageConnection();
 };
 
 export function initBot(botAuth) {
@@ -610,6 +628,6 @@ export function initBot(botAuth) {
     client.connect();
     setBotClient(client);
 
-    // Poll streams
+    // Poll streams every 2 minutes
     setInterval(checkStreamsAndManageConnection, 120000); 
 }
