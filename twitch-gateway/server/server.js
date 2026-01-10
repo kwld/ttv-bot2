@@ -337,8 +337,7 @@ app.get('/auth/login/:type', (req, res) => {
       'channel:read:redemptions',
       'bits:read',
       'channel:read:subscriptions',
-      'channel:bot', // Ensure Streamer authorizes the bot to join chat
-      'user:read:chat' // Fallback: Read own chat
+      'channel:bot' // Ensure Streamer authorizes the bot to join chat
   ]; 
   
   const defaultBotScopes = [

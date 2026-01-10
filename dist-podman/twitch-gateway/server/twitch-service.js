@@ -822,13 +822,6 @@ export class TwitchService {
 
         if (validSub) continue;
         
-        // Subscription Logic
-        // Manual streamers ALWAYS use App Access Token because they have no User Token
-        // 'channel.follow' uses App Token authorized by Bot's scope.
-        if (!streamerToken.isManual && !def.requiresBot && def.type !== 'channel.follow' && def.type !== 'user.update') {
-             // If we have a real user token, we could use it, but App Token is generally preferred for Webhooks where possible.
-        }
-
         try {
             await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
             type: def.type,
@@ -848,6 +841,40 @@ export class TwitchService {
             });
             console.log(`[EventSub] Subscribed to ${def.type} for ${streamerToken.login}`);
         } catch (e) {
+             // FALLBACK for Manual Streamers if 403 Forbidden on App Token
+             if (def.type === 'channel.chat.message' && e.response?.status === 403 && botTokenDoc) {
+                 if (IS_DEV) console.log(`[EventSub] App Token failed for Chat in ${streamerToken.login} (403). Trying Bot User Token fallback...`);
+                 
+                 // Retry using Bot User Token (which has user:read:chat)
+                 // NOTE: Using User Access Token means transport limits might be different, but webhook is generally standard.
+                 // HOWEVER, webhook transport usually requires App Access Token.
+                 // Actually, standard webhook transport for channel.chat.message v1 *supports* user token if app token fails due to permissions.
+                 
+                 try {
+                     await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
+                        type: def.type,
+                        version: def.version,
+                        condition: condition, // Still using bot ID as user_id
+                        transport: {
+                            method: 'webhook',
+                            callback: callbackUrl,
+                            secret: secret
+                        }
+                    }, {
+                        headers: {
+                            'Client-ID': process.env.TWITCH_CLIENT_ID,
+                            'Authorization': `Bearer ${botTokenDoc.accessToken}`, // Use Bot's User Token
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    console.log(`[EventSub] Subscribed to ${def.type} for ${streamerToken.login} using Bot Fallback Token.`);
+                 } catch (fallbackError) {
+                     console.error(`[EventSub] Fallback Subscription Failed for ${def.type}`, fallbackError.response?.data || fallbackError.message);
+                 }
+                 
+                 continue; // Handled
+             }
+
             if (e.response?.status !== 409) {
                 console.error(`[EventSub] Failed to subscribe ${def.type} for ${streamerToken.login}`, e.response?.data);
             }
