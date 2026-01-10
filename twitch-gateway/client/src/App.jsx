@@ -22,6 +22,12 @@ const SCOPE_DEFINITIONS = [
     label: 'Subscriptions', 
     description: 'Read subscription events.',
     required: true
+  },
+  { 
+    id: 'moderator:read:followers', 
+    label: 'Followers', 
+    description: 'Read channel followers (Requires Mod View perms).',
+    required: true
   }
 ];
 
@@ -38,7 +44,7 @@ const AuthModal = ({ isOpen, onClose }) => {
             if (saved) {
                 try {
                     const parsed = JSON.parse(saved);
-                    // Ensure valid format and filter out obsolete scopes (e.g. moderator:read:followers)
+                    // Ensure valid format and filter out obsolete scopes
                     if (Array.isArray(parsed)) {
                         const validIds = new Set(SCOPE_DEFINITIONS.map(s => s.id));
                         const filtered = parsed.filter(id => validIds.has(id));
@@ -71,8 +77,8 @@ const AuthModal = ({ isOpen, onClose }) => {
     };
 
     const handleConnect = () => {
-        // STRICT FILTER: Remove any restricted scopes that might have leaked into state
-        const safeScopes = selectedScopes.filter(s => s !== 'moderator:read:followers' && s !== 'channel:bot' && s !== 'user:bot');
+        // STRICT FILTER: Remove extremely sensitive bot scopes, but ALLOW moderator:read:followers
+        const safeScopes = selectedScopes.filter(s => s !== 'channel:bot' && s !== 'user:bot');
         
         localStorage.setItem('gateway_scopes', JSON.stringify(safeScopes));
         const scopeString = safeScopes.join(',');
@@ -363,6 +369,7 @@ const StreamerDashboard = ({ logout }) => {
     );
 };
 
+// ... existing code for ProfileHoverCard, SubscriptionsTable, ActiveConnectionsPanel, App ...
 const ProfileHoverCard = ({ anchorRect, streamer }) => {
     const elRef = useRef(null);
     const [style, setStyle] = useState({ opacity: 0 });
