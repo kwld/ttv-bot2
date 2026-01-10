@@ -167,8 +167,22 @@ app.get('/api/check-auth', (req, res) => {
 // --- Protected Admin API Routes ---
 
 app.get('/api/streamers', requireAuth, async (req, res) => {
-  const streamers = await Token.find({ type: 'streamer' }).select('twitchId login displayName avatar obtainedAt scope');
+  const streamers = await Token.find({ type: 'streamer' }).select('twitchId login displayName avatar obtainedAt scope isManual');
   res.json(streamers);
+});
+
+// NEW: Add Manual Streamer
+app.post('/api/streamers/manual', requireAuth, async (req, res) => {
+    try {
+        const { username } = req.body;
+        if (!username) return res.status(400).json({ error: 'Username required' });
+        
+        await service.addManualStreamer(username);
+        res.json({ success: true });
+    } catch (e) {
+        console.error("Manual add error:", e);
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.get('/api/bot', requireAuth, async (req, res) => {
@@ -406,6 +420,7 @@ app.get(AUTH_CALLBACK_PATH, async (req, res) => {
         await Token.deleteMany({ type: 'bot' });
     }
 
+    // UPDATE: Ensure isManual is reset to false if user authenticates properly
     const tokenDoc = await Token.findOneAndUpdate(
       { twitchId: user.id },
       {
@@ -418,7 +433,8 @@ app.get(AUTH_CALLBACK_PATH, async (req, res) => {
         expiresIn: expires_in,
         type: type,
         scope: scope || [],
-        obtainedAt: new Date()
+        obtainedAt: new Date(),
+        isManual: false // Override any manual flag
       },
       { upsert: true, new: true }
     );
@@ -496,7 +512,7 @@ app.post('/webhooks/callback', (req, res) => {
     const subscription = data.subscription;
     
     if (subscription && subscription.type) {
-        console.log(`Event: ${subscription.type} | Streamer: ${data.event?.broadcaster_user_login || 'unknown'}`);
+        // console.log(`Event: ${subscription.type} | Streamer: ${data.event?.broadcaster_user_login || 'unknown'}`);
         gateway.broadcast(subscription.type, data);
     }
     

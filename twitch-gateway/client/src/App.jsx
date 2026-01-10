@@ -427,7 +427,12 @@ const ProfileHoverCard = ({ anchorRect, streamer }) => {
                         <span>{new Date(streamer.obtainedAt).toLocaleDateString()}</span>
                         </div>
                     )}
-                    {streamer.scope && (
+                    {streamer.isManual && (
+                        <div className="mt-2 pt-2 border-t border-gray-700 text-center">
+                            <span className="text-xs font-black uppercase bg-blue-900/50 text-blue-300 px-2 py-0.5 rounded">Manual Entry</span>
+                        </div>
+                    )}
+                    {streamer.scope && !streamer.isManual && (
                     <div className="mt-2 pt-2 border-t border-gray-700">
                         <div className="text-gray-500 mb-1">Active Scopes:</div>
                         <div className="flex flex-wrap gap-1">
@@ -549,6 +554,9 @@ const SubscriptionsTable = ({ subscriptions, streamers, userInfo }) => {
                                                 <span className="font-medium text-purple-400 hover:text-purple-300 transition-colors">
                                                     {group.streamer.displayName || group.streamer.login}
                                                 </span>
+                                                {group.streamer.isManual && (
+                                                    <span className="text-[8px] bg-blue-900 text-blue-200 px-1 rounded uppercase font-black">Manual</span>
+                                                )}
                                             </div>
                                         ) : (
                                             <span className="font-mono text-xs text-gray-500">
@@ -612,7 +620,7 @@ const ActiveConnectionsPanel = ({ status }) => {
         <div className="bg-gray-800 rounded-lg shadow-lg border border-gray-700 mb-8">
             <div className="p-4 bg-gray-800 border-b border-gray-700 rounded-t-lg flex justify-between items-center">
                 <h3 className="font-bold text-gray-200 flex items-center gap-2">
-                    Active Chat Connections
+                    Monitored Channels (EventSub)
                     <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
                 </h3>
                 <div className="text-sm text-gray-400">
@@ -621,7 +629,7 @@ const ActiveConnectionsPanel = ({ status }) => {
             </div>
             <div className="p-4">
                 {channels.length === 0 ? (
-                    <div className="text-gray-500 text-sm italic">No active channels connected.</div>
+                    <div className="text-gray-500 text-sm italic">No active channels monitored.</div>
                 ) : (
                     <div className="flex flex-wrap gap-2">
                         {channels.map(channel => (
@@ -655,6 +663,7 @@ const App = () => {
 
   // Modal State
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
+  const [isManualAddOpen, setIsManualAddOpen] = useState(false); // Manual Add Modal
 
   const checkAuth = async () => {
     try {
@@ -790,6 +799,26 @@ const App = () => {
   const openAddStreamer = () => {
       setAuthModalOpen(true);
   };
+  
+  const handleManualAdd = async (username) => {
+      try {
+          const res = await fetch('/api/streamers/manual', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username })
+          });
+          
+          if (!res.ok) {
+              const err = await res.json();
+              alert('Error: ' + (err.error || 'Failed to add manual streamer'));
+          } else {
+              setIsManualAddOpen(false);
+              fetchData();
+          }
+      } catch (e) {
+          alert('Network Error');
+      }
+  };
 
   const getMissingScopes = (currentScopes) => {
       if (!currentScopes) return DEFAULT_SCOPES;
@@ -860,8 +889,11 @@ const App = () => {
                                     <button onClick={fetchData} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors">
                                         Refresh
                                     </button>
+                                    <button onClick={() => setIsManualAddOpen(true)} className="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition-colors" title="Add Manually via ID">
+                                        + Manual
+                                    </button>
                                     <button onClick={openAddStreamer} className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-xs font-medium transition-colors">
-                                    + Add
+                                    + Auth
                                     </button>
                                 </div>
                             </div>
@@ -872,6 +904,8 @@ const App = () => {
                                     <ul className="space-y-3">
                                         {streamers.map(s => {
                                             const missing = getMissingScopes(s.scope);
+                                            const isManual = s.isManual;
+                                            
                                             return (
                                             <li key={s.twitchId} className="flex justify-between items-center bg-gray-750 p-2 rounded group">
                                                 <div className="flex items-center gap-3">
@@ -882,23 +916,27 @@ const App = () => {
                                                             s.login.charAt(0).toUpperCase()
                                                         }
                                                         </div>
-                                                        {missing.length > 0 && (
+                                                        {missing.length > 0 && !isManual && (
                                                             <div className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full border border-gray-800" title="Missing Scopes"></div>
                                                         )}
                                                     </div>
                                                     <div className="leading-tight">
                                                         <div className="font-bold text-sm flex items-center gap-2">
                                                             {s.displayName || s.login}
-                                                            {missing.length > 0 && (
-                                                                <span className="text-[10px] bg-orange-900/50 text-orange-200 px-1 rounded border border-orange-800">New Scopes Avail</span>
+                                                            {isManual ? (
+                                                                <span className="text-[9px] bg-blue-900/50 text-blue-200 px-1 rounded border border-blue-800 font-black uppercase">ADMIN - MANUAL</span>
+                                                            ) : (
+                                                                missing.length > 0 && (
+                                                                    <span className="text-[10px] bg-orange-900/50 text-orange-200 px-1 rounded border border-orange-800">New Scopes Avail</span>
+                                                                )
                                                             )}
                                                         </div>
                                                         <div className="text-[10px] text-gray-500">{s.twitchId}</div>
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-2">
-                                                    <button onClick={() => refreshStreamerToken(s.twitchId)} className="text-blue-400 hover:text-blue-300 text-xs">Ref</button>
-                                                    <button onClick={() => openAddStreamer()} className="text-green-400 hover:text-green-300 text-xs">Re-Auth</button>
+                                                    {!isManual && <button onClick={() => refreshStreamerToken(s.twitchId)} className="text-blue-400 hover:text-blue-300 text-xs">Ref</button>}
+                                                    {!isManual && <button onClick={() => openAddStreamer()} className="text-green-400 hover:text-green-300 text-xs">Re-Auth</button>}
                                                     <button onClick={() => deleteStreamer(s.twitchId)} className="text-red-400 hover:text-red-300 text-xs">Del</button>
                                                 </div>
                                             </li>
@@ -924,6 +962,26 @@ const App = () => {
         isOpen={isAuthModalOpen} 
         onClose={() => setAuthModalOpen(false)}
       />
+
+      {isManualAddOpen && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+              <div className="bg-gray-800 border border-gray-700 p-6 rounded-lg shadow-xl w-full max-w-sm">
+                  <h3 className="text-lg font-bold text-white mb-4">Add Manual Streamer</h3>
+                  <p className="text-xs text-gray-400 mb-4">This will add a channel for public event tracking (Online/Offline) and Bot Chat. Redemptions will not work until they authenticate.</p>
+                  <form onSubmit={(e) => {
+                      e.preventDefault();
+                      const val = e.target.elements.username.value;
+                      if(val) handleManualAdd(val);
+                  }}>
+                      <input name="username" className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-white mb-4" placeholder="Twitch Username" autoFocus />
+                      <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => setIsManualAddOpen(false)} className="px-3 py-1.5 text-gray-300 hover:text-white">Cancel</button>
+                          <button type="submit" className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold">Add</button>
+                      </div>
+                  </form>
+              </div>
+          </div>
+      )}
     </>
   );
 };

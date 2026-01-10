@@ -72,6 +72,7 @@ export class TwitchService {
                 res.data.data.forEach(stream => {
                     // Construct a fake EventSub payload for stream.online
                     const payload = {
+                        type: 'stream.online',
                         subscription: {
                             id: 'internal_startup_check',
                             type: 'stream.online',
@@ -225,6 +226,13 @@ export class TwitchService {
   async refreshStreamerToken(twitchId) {
     const tokenDoc = await Token.findOne({ twitchId, type: 'streamer' });
     if (!tokenDoc) throw new Error('Streamer not found');
+    
+    // Skip refresh for manual entries (dummy tokens)
+    if (tokenDoc.isManual) {
+        if (IS_DEV) console.log(`[Auth] Skipped refresh for Manual Streamer: ${tokenDoc.login}`);
+        return tokenDoc;
+    }
+
     return this.refreshToken(tokenDoc);
   }
 
@@ -257,6 +265,52 @@ export class TwitchService {
       console.error('[Auth] Failed to refresh token', e.response?.data || e.message);
       throw e;
     }
+  }
+
+  // --- Manual Streamer Management ---
+  async addManualStreamer(username) {
+      console.log(`[Bot] Adding manual streamer: ${username}`);
+      try {
+          const appToken = await this.getAppAccessToken();
+          const userRes = await axios.get(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(username)}`, {
+              headers: {
+                  'Client-ID': process.env.TWITCH_CLIENT_ID,
+                  'Authorization': `Bearer ${appToken}`
+              }
+          });
+
+          if (!userRes.data.data || userRes.data.data.length === 0) {
+              throw new Error('User not found on Twitch');
+          }
+
+          const user = userRes.data.data[0];
+
+          const tokenDoc = await Token.findOneAndUpdate(
+              { twitchId: user.id },
+              {
+                  twitchId: user.id,
+                  login: user.login,
+                  displayName: user.display_name,
+                  avatar: user.profile_image_url,
+                  type: 'streamer',
+                  isManual: true, // Mark as manual
+                  accessToken: 'MANUAL_ENTRY_NO_TOKEN', // Dummy
+                  refreshToken: 'MANUAL_ENTRY_NO_TOKEN', // Dummy
+                  expiresIn: 0,
+                  scope: []
+              },
+              { upsert: true, new: true }
+          );
+
+          await this.setupEventSub(tokenDoc);
+          
+          // Mark as joined locally
+          this.joinedChannels.add(user.login.toLowerCase());
+          return tokenDoc;
+      } catch (e) {
+          console.error('[Bot] Failed to add manual streamer:', e);
+          throw e;
+      }
   }
 
   // --- EventSub Management ---
@@ -482,24 +536,36 @@ export class TwitchService {
     // Ensure local access token is fresh
     if (botTokenDoc) this.botAccessToken = botTokenDoc.accessToken;
 
-    const definitions = [
-      { type: 'stream.online', version: '1' },
-      { type: 'stream.offline', version: '1' },
-      // NEW: Chat Message (For ALL channels) - requires user:read:chat, user:bot, channel:bot
-      { type: 'channel.chat.message', version: '1', requiresBot: true },
-      { type: 'channel.channel_points_custom_reward_redemption.add', version: '1' },
-      { type: 'channel.channel_points_automatic_reward_redemption.add', version: '2' },
-      { type: 'channel.cheer', version: '1' },
-      { type: 'channel.bits.use', version: '1' },
-      { type: 'channel.follow', version: '2', requiresModerator: true },
-      { type: 'channel.subscribe', version: '1' },
-      { type: 'channel.subscription.end', version: '1' },
-      { type: 'channel.subscription.gift', version: '1' },
-      { type: 'channel.subscription.message', version: '1' },
-      { type: 'channel.shared_chat.begin', version: '1' },
-      { type: 'channel.shared_chat.update', version: '1' },
-      { type: 'channel.shared_chat.end', version: '1' },
-    ];
+    let definitions = [];
+
+    // Filter events based on manual vs authenticated streamer
+    if (streamerToken.isManual) {
+        // Manual streamers only get public events + chat (via bot)
+        definitions = [
+            { type: 'stream.online', version: '1' },
+            { type: 'stream.offline', version: '1' },
+            { type: 'channel.chat.message', version: '1', requiresBot: true }
+        ];
+    } else {
+        // Full list for authenticated streamers
+        definitions = [
+          { type: 'stream.online', version: '1' },
+          { type: 'stream.offline', version: '1' },
+          { type: 'channel.chat.message', version: '1', requiresBot: true },
+          { type: 'channel.channel_points_custom_reward_redemption.add', version: '1' },
+          { type: 'channel.channel_points_automatic_reward_redemption.add', version: '2' },
+          { type: 'channel.cheer', version: '1' },
+          { type: 'channel.bits.use', version: '1' },
+          { type: 'channel.follow', version: '2', requiresModerator: true },
+          { type: 'channel.subscribe', version: '1' },
+          { type: 'channel.subscription.end', version: '1' },
+          { type: 'channel.subscription.gift', version: '1' },
+          { type: 'channel.subscription.message', version: '1' },
+          { type: 'channel.shared_chat.begin', version: '1' },
+          { type: 'channel.shared_chat.update', version: '1' },
+          { type: 'channel.shared_chat.end', version: '1' },
+        ];
+    }
     
     // Only check scope requirements for events that are NOT bot-centric.
     // 'channel.chat.message' depends on the Bot's scope, not the Streamer's scope.
@@ -526,7 +592,8 @@ export class TwitchService {
         // Skip if required scopes missing on STREAMER token (unless it's a bot-only sub)
         if (!def.requiresBot) {
              const requiredScope = SCOPE_REQUIREMENTS[def.type];
-             if (requiredScope && (!streamerToken.scope || !streamerToken.scope.includes(requiredScope))) {
+             // If manual, we skip scope check because manual has no scopes, but we already filtered the definitions list above
+             if (!streamerToken.isManual && requiredScope && (!streamerToken.scope || !streamerToken.scope.includes(requiredScope))) {
                  continue; 
              }
         }
@@ -534,7 +601,12 @@ export class TwitchService {
         const condition = { broadcaster_user_id: streamerToken.twitchId };
         
         if (def.requiresModerator) {
-            condition.moderator_user_id = streamerToken.twitchId; // Self-mod
+            // For manual/bot use, the moderator ID usually needs to be the BOT ID if it's a mod event
+            // But 'channel.follow' v2 requires moderator_user_id to match the token user unless using app token?
+            // Actually 'channel.follow' with App Token requires moderator_user_id to be the broadcaster themselves or a mod.
+            // If manual, we don't have a user token, so we rely on App Token. 
+            // channel.follow v2 with App Token works if moderator_user_id = broadcaster_user_id.
+            condition.moderator_user_id = streamerToken.twitchId; 
         }
         
         if (def.requiresBot) {
@@ -568,6 +640,14 @@ export class TwitchService {
 
         if (validSub) continue;
         
+        // Subscription Logic
+        // Manual streamers ALWAYS use App Access Token because they have no User Token
+        let accessToken = appAccessToken;
+        if (!streamerToken.isManual && !def.requiresBot) {
+             // If we have a real user token, we could use it, but App Token is generally preferred for Webhooks where possible.
+             // Sticking to App Token for consistency unless specific event demands User Token (rare for Webhooks).
+        }
+
         try {
             await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
             type: def.type,
@@ -581,11 +661,11 @@ export class TwitchService {
             }, {
             headers: {
                 'Client-ID': process.env.TWITCH_CLIENT_ID,
-                'Authorization': `Bearer ${appAccessToken}`,
+                'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json'
             }
             });
-            if (IS_DEV) console.log(`[EventSub] Subscribed to ${def.type} for ${streamerToken.login}`);
+            console.log(`[EventSub] Subscribed to ${def.type} for ${streamerToken.login}`);
         } catch (e) {
             if (e.response?.status !== 409) {
                 console.error(`[EventSub] Failed to subscribe ${def.type} for ${streamerToken.login}`, e.response?.data);

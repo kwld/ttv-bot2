@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { AuthManager } from './authManager.js';
 import { AuthModel, ChannelSettingsModel, UserModel, PointModel, CommandModel, RepoCommandModel, isDBConnected } from './db.js';
 import { checkStreamsAndManageConnection } from './bot.js';
-import { commandsDB, usersDB, cachedLiveStreams, userSockets, authWaiters, adminSessions, botClient } from './context.js';
+import { commandsDB, usersDB, cachedLiveStreams, userSockets, authWaiters, adminSessions, botClient, liveStatusReady } from './context.js';
 import { requireChannelAccess, requireAuth } from './middleware/permissions.js';
 import { AiAuditor } from './services/AiAuditor.js';
 import { AiBuilder } from './services/AiBuilder.js';
@@ -681,7 +681,8 @@ router.get('/api/admin/status', adminAuth, async (req, res) => {
             gatewayChannels: gatewayChannels, // Include list for UI
             stats: { totalUsers: userCount }, 
             channels: list, 
-            dbConnected: isDBConnected 
+            dbConnected: isDBConnected,
+            liveStatusReady: liveStatusReady // Added status flag
         });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });

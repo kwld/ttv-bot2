@@ -415,7 +415,14 @@
                 data.channels.forEach(ch => {
                     const tr = document.createElement('tr');
                     tr.className = 'hover:bg-slate-800/30 transition-colors';
-                    const liveBadge = ch.isLive ? '<span class="px-2 py-1 rounded bg-red-500/20 text-red-400 border border-red-500/30 text-[9px] font-black uppercase">LIVE</span>' : '<span class="px-2 py-1 rounded bg-slate-700 text-slate-400 text-[9px] font-black uppercase">OFFLINE</span>';
+                    
+                    let liveBadge;
+                    if (!data.liveStatusReady) {
+                        liveBadge = '<span class="px-2 py-1 rounded bg-slate-700/50 text-slate-500 border border-slate-600 text-[9px] font-black uppercase">UNKNOWN</span>';
+                    } else {
+                        liveBadge = ch.isLive ? '<span class="px-2 py-1 rounded bg-red-500/20 text-red-400 border border-red-500/30 text-[9px] font-black uppercase">LIVE</span>' : '<span class="px-2 py-1 rounded bg-slate-700 text-slate-400 text-[9px] font-black uppercase">OFFLINE</span>';
+                    }
+
                     const botBadge = ch.botJoined ? '<span class="text-emerald-400 font-bold"><i class="fas fa-check-circle"></i> Joined</span>' : '<span class="text-slate-500 italic">Parted</span>';
                     const clientBadge = ch.clientCount > 0 ? `<span class="px-2 py-1 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[9px] font-black uppercase">${ch.clientCount} Connected</span>` : '<span class="text-slate-600">-</span>';
                     const apiEnabled = !!ch.apiEnabled;

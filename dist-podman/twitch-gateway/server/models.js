@@ -6,16 +6,18 @@ const tokenSchema = new mongoose.Schema({
   login: { type: String, required: true },
   displayName: { type: String },
   avatar: { type: String },
-  accessToken: { type: String, required: true },
-  refreshToken: { type: String, required: true },
-  expiresIn: { type: Number, required: true },
+  accessToken: { type: String, required: false }, // Made optional for manual entries
+  refreshToken: { type: String, required: false }, // Made optional for manual entries
+  expiresIn: { type: Number, required: false },    // Made optional for manual entries
   obtainedAt: { type: Date, default: Date.now },
   scope: [String],
-  type: { type: String, enum: ['bot', 'streamer'], required: true }
+  type: { type: String, enum: ['bot', 'streamer'], required: true },
+  isManual: { type: Boolean, default: false } // New flag
 });
 
 // Calculate expiry dynamically
 tokenSchema.methods.isExpired = function() {
+  if (this.isManual) return false; // Manual tokens never expire (they are dummy)
   const now = Date.now();
   // Buffer of 5 minutes
   return now >= this.obtainedAt.getTime() + (this.expiresIn * 1000) - (5 * 60 * 1000);

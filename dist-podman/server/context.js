@@ -12,6 +12,12 @@ export const channelAttendees = new Map();
 export const cachedLiveStreams = new Set();
 export const adminSessions = new Set();
 
+// Track if the initial live status check has completed
+export let liveStatusReady = false;
+export const setLiveStatusReady = (status) => {
+    liveStatusReady = status;
+};
+
 // Bot Client Singleton in Context to avoid circular deps
 export let botClient = null;
 export const setBotClient = (client) => {

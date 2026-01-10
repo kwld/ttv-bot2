@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 import { WebSocket } from 'ws';
 import { AuthModel, ChannelSettingsModel, UserModel, PointModel } from './db.js';
 import { GatewayClient } from './services/GatewayClient.js';
-import { usersDB, channelAttendees, cachedLiveStreams, userSockets, executors, pointsDB, commandsDB, activeWaitings, participants, botClient, setBotClient } from './context.js';
+import { usersDB, channelAttendees, cachedLiveStreams, userSockets, executors, pointsDB, commandsDB, activeWaitings, participants, botClient, setBotClient, setLiveStatusReady } from './context.js';
 import { FlowExecutor } from './services/engine/FlowExecutor.js';
 import { RegistryPointSystem } from './services/engine/PointSystem.js';
 import { AuthManager } from './authManager.js';
@@ -477,7 +477,10 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
 const updateLiveStatus = async () => {
     try {
         const botAuth = await AuthModel.findOne({ isBot: true });
-        if (!botAuth) return;
+        if (!botAuth) {
+            setLiveStatusReady(true);
+            return;
+        }
 
         const settings = await ChannelSettingsModel.find({ botEnabled: true });
         const logins = new Set();
@@ -494,7 +497,11 @@ const updateLiveStatus = async () => {
         }
 
         const loginArray = Array.from(logins);
-        if (loginArray.length === 0) return;
+        
+        if (loginArray.length === 0) {
+            setLiveStatusReady(true);
+            return;
+        }
 
         if (IS_DEV) console.log(`[Bot] Polling live status for ${loginArray.length} channels...`);
 
@@ -545,6 +552,8 @@ const updateLiveStatus = async () => {
         }
     } catch (e) {
         console.error("[Bot] Failed to update live status:", e);
+    } finally {
+        setLiveStatusReady(true);
     }
 };
 
@@ -599,12 +608,12 @@ const refreshChannelMetadata = async () => {
 };
 
 export const checkStreamsAndManageConnection = async () => {
+    // Always refresh status before decision making to fix "parting while live" bugs
+    await updateLiveStatus();
+
     if (!botClient || !botClient.isConnected || !botClient.isIrcConnected) {
         return;
     }
-    
-    // Always refresh status before decision making to fix "parting while live" bugs
-    await updateLiveStatus();
 
     const settings = await ChannelSettingsModel.find({});
 
