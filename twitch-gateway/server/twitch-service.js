@@ -1,20 +1,18 @@
 
 import { Token } from './models.js';
 import axios from 'axios';
-// import { TwitchIRCClient } from './TwitchIRC.js'; // DEPRECATED
 
 const IS_DEV = process.env.DEV === 'true';
 
 export class TwitchService {
   constructor(gateway) {
     this.gateway = gateway;
-    // this.client = null; // DEPRECATED: No persistent IRC client
     this.botUserId = null;
     this.botAccessToken = null;
-    this.joinedChannels = new Set(); // Track intended channels virtually
+    this.joinedChannels = new Set(); // Track channels we are "active" in for the UI
   }
 
-  // Helper to broadcast current state
+  // Helper to broadcast current state to Gateway clients (Admin UI)
   broadcastChannelList() {
       if (this.gateway) {
           const channels = Array.from(this.joinedChannels);
@@ -23,7 +21,7 @@ export class TwitchService {
   }
 
   async initialize() {
-    // 1. Run Global Cleanup on Startup
+    // 1. Run Global Cleanup on Startup (EventSub)
     await this.cleanupOrphanedSubscriptions();
 
     // 2. Initialize Bot Token
@@ -41,19 +39,17 @@ export class TwitchService {
     
     this.botUserId = botToken.twitchId;
 
-    // Debug Scopes
     if (IS_DEV) {
         console.log(`[TwitchService] Active Bot Token Scopes: ${botToken.scope.join(', ')}`);
-    } else {
-        console.log(`[TwitchService] Bot Scopes Loaded.`);
     }
 
-    // Simulate connection for Gateway status
+    // 3. Signal "Connected" (API Mode)
+    // We aren't actually on IRC, but we tell the system we are ready to process commands.
     if (this.gateway) {
-        this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: true });
+        this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: true }); // "IRC" here effectively means "Bot Service Ready"
         this.gateway.broadcast('SYSTEM_LOG', {
             type: 'SYSTEM_LOG',
-            message: 'Bot Service Initialized (API Mode).',
+            message: 'Bot Service Initialized (Helix API Mode).',
             timestamp: new Date().toISOString()
         });
         this.broadcastChannelList();
@@ -61,7 +57,7 @@ export class TwitchService {
     
     console.log(`[TwitchService] Bot Initialized: ${botToken.login} (${this.botUserId}) via Helix API`);
 
-    // Sync EventSub subscriptions
+    // 4. Sync EventSub subscriptions (This replaces JOINing channels for reading messages)
     await this.syncAllStreamers();
   }
 
@@ -89,12 +85,20 @@ export class TwitchService {
   // --- Gateway Command Wrappers ---
 
   join(channel) {
-      // In API mode, we don't "join" chat rooms.
-      // We just track it to know we are active for this channel.
+      // In API Mode, "Joining" is virtual. We just track it.
+      // Message receiving is handled by EventSub, which is set up on auth/refresh.
       const lower = channel.toLowerCase().replace('#', '');
       if (!this.joinedChannels.has(lower)) {
           this.joinedChannels.add(lower);
-          if (IS_DEV) console.log(`[GatewayCmd] Virtual Join: ${channel}`);
+          if (IS_DEV) console.log(`[GatewayCmd] Virtual Join (API): ${channel}`);
+          
+          if (this.gateway) {
+              this.gateway.broadcast('SYSTEM_LOG', {
+                  type: 'SYSTEM_LOG',
+                  message: `🟢 Active (API): #${channel}`,
+                  timestamp: new Date().toISOString()
+              });
+          }
           this.broadcastChannelList();
       }
   }
@@ -103,11 +107,12 @@ export class TwitchService {
       const lower = channel.toLowerCase().replace('#', '');
       if (this.joinedChannels.has(lower)) {
           this.joinedChannels.delete(lower);
-          if (IS_DEV) console.log(`[GatewayCmd] Virtual Part: ${channel}`);
+          if (IS_DEV) console.log(`[GatewayCmd] Virtual Part (API): ${channel}`);
           this.broadcastChannelList();
       }
   }
 
+  // SEND MESSAGE VIA HELIX API
   async say(channelName, message) {
     if (!this.botUserId || !this.botAccessToken) {
         console.error('[GatewayCmd] Cannot send message: Bot not initialized.');
@@ -117,23 +122,23 @@ export class TwitchService {
     const targetName = channelName.toLowerCase().replace('#', '');
     
     try {
-        // Resolve Broadcaster ID from Name
-        // We check our local Token DB first for speed, then fall back to API
+        // 1. Resolve Broadcaster ID (Target Channel)
         let broadcasterId = null;
         
+        // Strategy A: Check Local DB (Fastest)
         const streamerToken = await Token.findOne({ login: targetName, type: 'streamer' });
         if (streamerToken) {
             broadcasterId = streamerToken.twitchId;
         } else {
-            // Check if we are sending to self (bot channel)
+            // Strategy B: Check if sending to self (Bot Channel)
             const botToken = await Token.findOne({ type: 'bot' });
             if (botToken && botToken.login.toLowerCase() === targetName) {
                 broadcasterId = botToken.twitchId;
             }
         }
 
+        // Strategy C: API Lookup (Fallback)
         if (!broadcasterId) {
-             // Fallback API lookup
              const res = await axios.get(`https://api.twitch.tv/helix/users?login=${targetName}`, {
                  headers: {
                      'Client-ID': process.env.TWITCH_CLIENT_ID,
@@ -150,8 +155,9 @@ export class TwitchService {
             return;
         }
 
-        if (IS_DEV) console.log(`[GatewayCmd] Sending to ${targetName} (${broadcasterId}): ${message}`);
+        if (IS_DEV) console.log(`[GatewayCmd] Sending via API to ${targetName} (${broadcasterId}): ${message}`);
 
+        // 2. Send via Helix
         await axios.post('https://api.twitch.tv/helix/chat/messages', {
             broadcaster_id: broadcasterId,
             sender_id: this.botUserId,
@@ -165,7 +171,18 @@ export class TwitchService {
         });
 
     } catch (e) {
-        console.error(`[GatewayCmd] Failed to send message to ${targetName}:`, e.response?.data || e.message);
+        // Detailed Error Logging
+        const errData = e.response?.data;
+        const errMsg = errData ? JSON.stringify(errData) : e.message;
+        console.error(`[GatewayCmd] API Send Failed to #${targetName}: ${errMsg}`);
+        
+        if (this.gateway) {
+             this.gateway.broadcast('SYSTEM_LOG', {
+                  type: 'SYSTEM_LOG',
+                  message: `❌ API Send Error (#${targetName}): ${errMsg}`,
+                  timestamp: new Date().toISOString()
+              });
+        }
     }
   }
 
@@ -192,7 +209,7 @@ export class TwitchService {
       tokenDoc.refreshToken = res.data.refresh_token;
       tokenDoc.expiresIn = res.data.expires_in;
       tokenDoc.obtainedAt = new Date();
-      tokenDoc.scope = res.data.scope || tokenDoc.scope; // Update scope on refresh if provided
+      tokenDoc.scope = res.data.scope || tokenDoc.scope; 
       await tokenDoc.save();
       
       // Update local memory if it's the bot
@@ -200,7 +217,7 @@ export class TwitchService {
           this.botAccessToken = tokenDoc.accessToken;
       }
 
-      if (IS_DEV) console.log(`[Auth] Refreshed token for ${tokenDoc.login} (Scopes: ${tokenDoc.scope?.join(',')})`);
+      if (IS_DEV) console.log(`[Auth] Refreshed token for ${tokenDoc.login}`);
       return tokenDoc;
     } catch (e) {
       console.error('[Auth] Failed to refresh token', e.response?.data || e.message);
