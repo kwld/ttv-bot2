@@ -321,6 +321,62 @@ export class TwitchService {
     }
   }
 
+  // Set up Public Events (No Auth Required) for a specific Channel ID
+  async setupPublicEventSub(channelId) {
+      if (!channelId) return;
+      if (IS_DEV) console.log(`[EventSub] Checking Public Subscriptions for ${channelId}...`);
+
+      const definitions = [
+        { type: 'stream.online', version: '1' },
+        { type: 'stream.offline', version: '1' }
+      ];
+
+      const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+      const secret = process.env.TWITCH_WEBHOOK_SECRET;
+      const callbackUrl = `${publicUrl}/webhooks/callback`;
+
+      try {
+          const appAccessToken = await this.getAppAccessToken();
+          const allSubs = await this.getAllSubscriptions(appAccessToken);
+
+          for (const def of definitions) {
+              const condition = { broadcaster_user_id: channelId };
+
+              // Check if already subscribed correctly
+              const validSub = allSubs.find(s => {
+                  if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
+                  if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
+                  return s.condition.broadcaster_user_id === channelId;
+              });
+
+              if (validSub) continue; // Already exists
+
+              // Create Subscription
+              await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
+                  type: def.type,
+                  version: def.version,
+                  condition: condition,
+                  transport: {
+                      method: 'webhook',
+                      callback: callbackUrl,
+                      secret: secret
+                  }
+              }, {
+                  headers: {
+                      'Client-ID': process.env.TWITCH_CLIENT_ID,
+                      'Authorization': `Bearer ${appAccessToken}`,
+                      'Content-Type': 'application/json'
+                  }
+              });
+              if (IS_DEV) console.log(`[EventSub] Subscribed to ${def.type} for ${channelId} (Public)`);
+          }
+      } catch (e) {
+          if (e.response?.status !== 409) {
+               console.error(`[EventSub] Failed to setup public subs for ${channelId}`, e.response?.data || e.message);
+          }
+      }
+  }
+
   async setupEventSub(streamerToken) {
     if (streamerToken.isExpired()) {
       await this.refreshToken(streamerToken);

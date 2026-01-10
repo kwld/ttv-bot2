@@ -268,7 +268,6 @@ app.get('/auth/login/:type', (req, res) => {
       return res.status(401).send('Unauthorized: Only admins can authenticate the bot account.');
   }
 
-  // UPDATED: Include essential functional scopes by default, REMOVED moderator:read:followers
   const defaultStreamerScopes = [
       'user:read:email',
       'channel:read:redemptions',
@@ -281,12 +280,22 @@ app.get('/auth/login/:type', (req, res) => {
       'chat:edit', 
       'user:read:chat', 
       'user:bot',
-      'moderator:read:followers' // Explicitly added for BOT ONLY
+      'moderator:read:followers', // Only for Bot
+      'channel:bot'               // Only for Bot
   ];
 
   let scopeList = [];
   if (customScopes) {
       scopeList = customScopes.split(',').filter(Boolean);
+      
+      // STRICT FILTERING: If not 'bot', forcibly remove restricted scopes
+      if (type !== 'bot') {
+          scopeList = scopeList.filter(s => 
+              s !== 'moderator:read:followers' && 
+              s !== 'channel:bot' && 
+              s !== 'user:bot'
+          );
+      }
   } else {
       scopeList = type === 'bot' ? defaultBotScopes : defaultStreamerScopes;
   }

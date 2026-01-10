@@ -71,8 +71,11 @@ const AuthModal = ({ isOpen, onClose }) => {
     };
 
     const handleConnect = () => {
-        localStorage.setItem('gateway_scopes', JSON.stringify(selectedScopes));
-        const scopeString = selectedScopes.join(',');
+        // STRICT FILTER: Remove any restricted scopes that might have leaked into state
+        const safeScopes = selectedScopes.filter(s => s !== 'moderator:read:followers' && s !== 'channel:bot' && s !== 'user:bot');
+        
+        localStorage.setItem('gateway_scopes', JSON.stringify(safeScopes));
+        const scopeString = safeScopes.join(',');
         window.location.href = `/auth/login/streamer?portal=true&scopes=${encodeURIComponent(scopeString)}`;
     };
 

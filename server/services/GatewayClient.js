@@ -338,4 +338,8 @@ export class GatewayClient {
         this.send('PART', { channel });
         this.channels.delete(lower);
     }
+    
+    subscribe(channelId) {
+        this.send('SUBSCRIBE', { channelId });
+    }
 }

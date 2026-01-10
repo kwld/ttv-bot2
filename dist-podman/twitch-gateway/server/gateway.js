@@ -158,6 +158,12 @@ export class Gateway {
             this.botService.part(data.channel);
         }
         break;
+        
+      case 'SUBSCRIBE':
+        if (data.channelId) {
+            this.botService.setupPublicEventSub(data.channelId);
+        }
+        break;
 
       default:
         console.warn('[Gateway] Unknown command:', data.command);

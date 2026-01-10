@@ -480,6 +480,8 @@ export const checkStreamsAndManageConnection = async () => {
 
     // Create a Set of desired channels
     const desiredChannels = new Set();
+    // Keep track of IDs we need to subscribe to events for (Online/Offline)
+    const subscriptionTargets = new Set();
     
     for (const s of settings) {
         if (s.botEnabled) {
@@ -492,6 +494,9 @@ export const checkStreamsAndManageConnection = async () => {
              const isLocked = s.isLocked || s.serverLocked;
              const isLive = cachedLiveStreams.has(lower);
              
+             // Ensure we always attempt subscription for enabled channels to catch live status
+             subscriptionTargets.add(s.channelId);
+
              if (isLocked || isLive) {
                  desiredChannels.add(lower);
              }
@@ -516,6 +521,11 @@ export const checkStreamsAndManageConnection = async () => {
             if (IS_DEV) console.log(`[Bot] Parting inactive channel: ${joined}`);
             botClient.part(joined);
         }
+    }
+
+    // Enforce EventSub Subscriptions for Public Events (Online/Offline)
+    for (const channelId of subscriptionTargets) {
+        botClient.subscribe(channelId);
     }
 };
 
