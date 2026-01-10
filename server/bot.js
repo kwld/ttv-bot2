@@ -76,6 +76,10 @@ const getExecutor = (channelId, channelName) => {
         },
         onNodeStatusUpdate: (nodeId, status, error) => {
             broadcastToUser(channelId, { type: 'NODE_STATUS', payload: { nodeId, status, error } });
+            // FORCE FLASH ANIMATION on start to ensure visual feedback over network
+            if (status === 'running') {
+                broadcastToUser(channelId, { type: 'NODE_FLASH', payload: { nodeId } });
+            }
         },
         onWaitingChange: (waiting, executionId) => {
             if (waiting) {

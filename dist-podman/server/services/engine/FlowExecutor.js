@@ -306,6 +306,12 @@ export class FlowExecutor {
         
         if (IS_DEV) console.log(`[FlowExecutor] Executing ${action.type} (${action.id}) in execution ${executionId}`);
         this.callbacks.onNodeStatusUpdate(action.id, 'running');
+        
+        // --- VISUAL PACING DELAY ---
+        // Ensures the "running" state is propagated and rendered on frontend before switching to "completed"
+        // This makes the flow execution visible and smooth.
+        await new Promise(resolve => setTimeout(resolve, 50)); 
+        // ---------------------------
 
         const nodeDelayRaw = action.settings._executionDelay;
         const globalDelayRaw = command.rootAction.settings.defaultDelay;
