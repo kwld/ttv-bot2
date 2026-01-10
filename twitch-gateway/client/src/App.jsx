@@ -660,6 +660,16 @@ const App = () => {
 
   useEffect(() => {
     checkAuth();
+    
+    // Check for auto-open query param
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('connect') === 'true') {
+        setAuthModalOpen(true);
+        // Clean URL
+        const url = new URL(window.location);
+        url.searchParams.delete('connect');
+        window.history.replaceState({}, '', url);
+    }
   }, []);
 
   useEffect(() => {

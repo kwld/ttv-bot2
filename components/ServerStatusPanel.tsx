@@ -156,7 +156,7 @@ const ServerStatusPanel: React.FC<ServerStatusPanelProps> = ({
                 <div className="pt-2 border-t border-slate-700 flex flex-col gap-2">
                     {gatewayUrl && (
                         <a 
-                            href={`${gatewayUrl}/auth/login/streamer?portal=true&scopes=user:read:email`} 
+                            href={`${gatewayUrl}/?connect=true`} 
                             target="_blank"
                             rel="noopener noreferrer"
                             className="w-full py-1.5 bg-purple-900/30 hover:bg-purple-900/50 text-purple-400 hover:text-purple-300 rounded-lg text-[10px] font-black uppercase border border-purple-900/50 transition-colors text-center"
