@@ -276,7 +276,13 @@ app.get('/auth/login/:type', (req, res) => {
       'channel:read:subscriptions'
   ]; 
   
-  const defaultBotScopes = ['chat:read', 'chat:edit', 'user:read:chat', 'user:bot'];
+  const defaultBotScopes = [
+      'chat:read', 
+      'chat:edit', 
+      'user:read:chat', 
+      'user:bot',
+      'moderator:read:followers' // Explicitly added for BOT ONLY
+  ];
 
   let scopeList = [];
   if (customScopes) {

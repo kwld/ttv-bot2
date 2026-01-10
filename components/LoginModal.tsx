@@ -65,7 +65,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, authUrl, mode,
       currentScopes.push('chat:read', 'chat:edit', 'clips:edit');
   }
   if (enableEvents) {
-      currentScopes.push('channel:read:redemptions');
+      currentScopes.push('channel:read:redemptions', 'moderator:read:followers');
   }
   if (!autoLoginChat && !enableEvents) {
       currentScopes.push('user:read:email'); // Minimal

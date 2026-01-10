@@ -38,9 +38,19 @@ const AuthModal = ({ isOpen, onClose }) => {
             if (saved) {
                 try {
                     const parsed = JSON.parse(saved);
-                    // Ensure valid format
-                    if (Array.isArray(parsed)) setSelectedScopes(parsed);
-                    else setSelectedScopes(DEFAULT_SCOPES);
+                    // Ensure valid format and filter out obsolete scopes (e.g. moderator:read:followers)
+                    if (Array.isArray(parsed)) {
+                        const validIds = new Set(SCOPE_DEFINITIONS.map(s => s.id));
+                        const filtered = parsed.filter(id => validIds.has(id));
+                        
+                        if (filtered.length > 0) {
+                            setSelectedScopes(filtered);
+                        } else {
+                            setSelectedScopes(DEFAULT_SCOPES);
+                        }
+                    } else {
+                        setSelectedScopes(DEFAULT_SCOPES);
+                    }
                 } catch(e) {
                     setSelectedScopes(DEFAULT_SCOPES);
                 }
