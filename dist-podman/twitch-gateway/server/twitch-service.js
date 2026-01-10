@@ -44,6 +44,8 @@ export class TwitchService {
     // Debug Scopes
     if (IS_DEV) {
         console.log(`[TwitchService] Active Bot Token Scopes: ${botToken.scope.join(', ')}`);
+    } else {
+        console.log(`[TwitchService] Bot Scopes Loaded.`);
     }
 
     // Simulate connection for Gateway status

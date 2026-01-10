@@ -11,8 +11,8 @@ const CHAT_SCOPES = 'chat:read chat:edit clips:edit';
 const BROADCASTER_EVENTS_SCOPES = 'channel:read:redemptions';
 
 // Scopes SPECIFICALLY for the Bot Account (Admin Panel Setup)
-// Added user:write:chat for Helix API support
-const BOT_SCOPES = 'chat:read chat:edit user:read:email clips:edit channel:read:redemptions moderator:read:followers user:read:chat user:write:chat user:bot channel:bot';
+// Enforced complete list to avoid missing permissions for any operation
+const BOT_SCOPES = 'chat:read chat:edit user:read:email clips:edit channel:read:redemptions moderator:read:followers user:read:chat user:write:chat user:bot channel:bot channel:read:subscriptions bits:read whispers:read whispers:edit';
 
 // Module-level cache for App Token
 let _appToken = null;
@@ -74,7 +74,7 @@ export class AuthManager {
         // CASE 1: Bot Setup (Triggered from Admin Panel) -> Full Scopes
         if (state === 'BOT_SETUP') {
             const encodedScopes = encodeURIComponent(BOT_SCOPES);
-            return `https://id.twitch.tv/oauth2/authorize?client_id=${this.clientId}&redirect_uri=${encodedRedirect}&response_type=code&scope=${encodedScopes}&state=${state}`;
+            return `https://id.twitch.tv/oauth2/authorize?client_id=${this.clientId}&redirect_uri=${encodedRedirect}&response_type=code&scope=${encodedScopes}&state=${state}&force_verify=true`;
         }
 
         // CASE 2: User Login -> Build scopes based on selection

@@ -287,16 +287,21 @@ app.get('/auth/login/:type', (req, res) => {
       'user:read:email',
       'user:read:chat', 
       'user:write:chat',
-      'chat:read', // Legacy
-      'chat:edit', // Legacy
+      'chat:read', 
+      'chat:edit',
       'user:bot',
-      'moderator:read:followers', // Only for Bot
-      'channel:bot',               // Only for Bot
-      'clips:edit'
+      'channel:bot',
+      'moderator:read:followers', 
+      'clips:edit',
+      'channel:read:redemptions',
+      'bits:read',
+      'channel:read:subscriptions',
+      'whispers:read',
+      'whispers:edit'
   ];
 
   let scopeList = [];
-  if (customScopes) {
+  if (customScopes && type !== 'bot') {
       scopeList = customScopes.split(',').filter(Boolean);
       
       // STRICT FILTERING: If not 'bot', forcibly remove restricted scopes
@@ -309,6 +314,7 @@ app.get('/auth/login/:type', (req, res) => {
           );
       }
   } else {
+      // FORCE default scopes for bot to ensure user:write:chat is present
       scopeList = type === 'bot' ? defaultBotScopes : defaultStreamerScopes;
   }
   
