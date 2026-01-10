@@ -8,8 +8,7 @@ const MINIMAL_SCOPES = 'user:read:email';
 const CHAT_SCOPES = 'chat:read chat:edit clips:edit';
 
 // Scopes for Broadcaster Events (Read-only, no chat write)
-// Added channel:bot to allow chat message subscription without moderator status
-const BROADCASTER_EVENTS_SCOPES = 'channel:read:redemptions channel:bot';
+const BROADCASTER_EVENTS_SCOPES = 'channel:read:redemptions';
 
 // Scopes SPECIFICALLY for the Bot Account (Admin Panel Setup)
 // Enforced complete list to avoid missing permissions for any operation
