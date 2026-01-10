@@ -50,29 +50,8 @@ export class EventSubService {
              
              // Cleanup Token
              try {
-                 // Initialize a temp service just for removal if static instance missing (hacky but effective)
-                 // Ideally EventSubService should have DI.
-                 // For now, we manually replicate the removal logic or rely on DB trigger.
-                 
                  // 1. Remove from DB
                  await Token.deleteOne({ twitchId: revokedUserId });
-                 
-                 // 2. Notify Gateway Clients (App Server)
-                 // We can broadcast a 'CHANNEL_SYNC' delete event
-                 // We can't access gateway instance easily here without refactoring.
-                 // BUT: The GatewayClient (App Server) has its own listeners.
-                 // We need to broadcast from THIS server to the App Server via WebSocket.
-                 // `broadcastToUser` sends to User Clients (Browser). We need `gateway.broadcast` which sends to App Server.
-                 
-                 // Accessing gateway from import is hard circular dep.
-                 // Rely on `broadcastToUser`? No, that's for browser clients.
-                 
-                 // Fallback: Just delete from DB. The App Server will eventually fail to refresh and clean up.
-                 // Or we rely on the `EventSubService` usually being called *by* the Gateway/TwitchService which passes context.
-                 // Here `handleNotification` is called by `GatewayClient.js` in `handlePayload`.
-                 
-                 // Let's implement full cleanup in TwitchService and call it here if we can instance it.
-                 // Since we can't easily, we just update DB.
                  
              } catch(e) {
                  console.error("Error handling revoke:", e);
@@ -83,8 +62,6 @@ export class EventSubService {
         if (type === 'user.update') {
              const updatedUserId = event.user_id;
              const newLogin = event.user_login;
-             const newEmail = event.email;
-             const newDescription = event.description;
              
              console.log(`[EventSub] User Update for ${newLogin}: ${event.description?.substring(0, 20)}...`);
              
@@ -93,12 +70,9 @@ export class EventSubService {
                  if (token) {
                      let changed = false;
                      if (token.login !== newLogin) { token.login = newLogin; changed = true; }
-                     // Note: We don't store description/email in Token model usually, but could if needed.
                      
                      if (changed) {
                          await token.save();
-                         // Broadcast Sync
-                         // See note above about broadcasting to App Server.
                      }
                  }
              } catch(e) {}

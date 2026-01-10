@@ -332,11 +332,13 @@ app.get('/auth/login/:type', (req, res) => {
       return res.status(401).send('Unauthorized: Only admins can authenticate the bot account.');
   }
 
+  // Added channel:bot to Streamer scopes to fix 403 Forbidden on Chat Subscription
   const defaultStreamerScopes = [
       'user:read:email',
       'channel:read:redemptions',
       'bits:read',
-      'channel:read:subscriptions'
+      'channel:read:subscriptions',
+      'channel:bot' // ADDED: Allows app to interact with channel via bot without mod status (in some contexts)
   ]; 
   
   const defaultBotScopes = [
@@ -368,6 +370,11 @@ app.get('/auth/login/:type', (req, res) => {
               s !== 'user:bot' &&
               s !== 'user:write:chat'
           );
+      }
+      
+      // Auto-add channel:bot if missing for streamers
+      if (type !== 'bot' && !scopeList.includes('channel:bot')) {
+          scopeList.push('channel:bot');
       }
   } else {
       // FORCE default scopes for bot to ensure user:write:chat is present
