@@ -627,15 +627,41 @@ router.get('/api/admin/status', adminAuth, async (req, res) => {
         const channels = await ChannelSettingsModel.find({});
         const auths = await AuthModel.find({ isBot: false });
         const list = [];
+        
         auths.forEach(a => {
             const settings = channels.find(s => s.channelId === a.userId);
-            list.push({ id: a.userId, name: a.username, authType: 'OAUTH', clientCount: userSockets.get(a.userId) ? userSockets.get(a.userId).size : 0, apiEnabled: settings ? settings.apiEnabled : false, isLocked: settings ? (settings.isLocked || settings.serverLocked) : false, botEnabled: settings ? settings.botEnabled : true, editors: settings ? (settings.editors || []) : [] });
+            const isLive = cachedLiveStreams.has(a.username.toLowerCase());
+            list.push({ 
+                id: a.userId, 
+                name: a.username, 
+                authType: 'OAUTH', 
+                clientCount: userSockets.get(a.userId) ? userSockets.get(a.userId).size : 0, 
+                apiEnabled: settings ? settings.apiEnabled : false, 
+                isLocked: settings ? (settings.isLocked || settings.serverLocked) : false, 
+                botEnabled: settings ? settings.botEnabled : true, 
+                editors: settings ? (settings.editors || []) : [],
+                isLive: isLive
+            });
         });
+        
         channels.forEach(c => {
             if (!list.find(x => x.id === c.channelId)) {
-                list.push({ id: c.channelId, name: c.channelName, authType: 'MANUAL', clientCount: 0, apiEnabled: c.apiEnabled, isLocked: (c.isLocked || c.serverLocked), botEnabled: c.botEnabled, editors: c.editors || [] });
+                const name = c.channelName || c.channelId;
+                const isLive = cachedLiveStreams.has(name.toLowerCase());
+                list.push({ 
+                    id: c.channelId, 
+                    name: c.channelName, 
+                    authType: 'MANUAL', 
+                    clientCount: 0, 
+                    apiEnabled: c.apiEnabled, 
+                    isLocked: (c.isLocked || c.serverLocked), 
+                    botEnabled: c.botEnabled, 
+                    editors: c.editors || [],
+                    isLive: isLive
+                });
             }
         });
+        
         let activeChannels = 0;
         let gatewayChannels = [];
         

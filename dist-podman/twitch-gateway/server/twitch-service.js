@@ -42,6 +42,66 @@ export class TwitchService {
 
     // Sync EventSub subscriptions
     await this.syncAllStreamers();
+
+    // 3. Initial Stream Status Check
+    await this.checkStreamStatuses();
+  }
+
+  async checkStreamStatuses() {
+    console.log('[TwitchService] Checking initial stream statuses...');
+    try {
+        const streamers = await Token.find({ type: 'streamer' });
+        if (streamers.length === 0) return;
+
+        const userIds = streamers.map(s => s.twitchId);
+        const appAccessToken = await this.getAppAccessToken();
+
+        // Batch in 100s
+        for (let i = 0; i < userIds.length; i += 100) {
+            const chunk = userIds.slice(i, i + 100);
+            const query = chunk.map(id => `user_id=${id}`).join('&');
+            
+            const res = await axios.get(`https://api.twitch.tv/helix/streams?${query}`, {
+                headers: {
+                    'Client-ID': process.env.TWITCH_CLIENT_ID,
+                    'Authorization': `Bearer ${appAccessToken}`
+                }
+            });
+
+            if (res.data && res.data.data) {
+                res.data.data.forEach(stream => {
+                    // Construct a fake EventSub payload for stream.online
+                    const payload = {
+                        subscription: {
+                            id: 'internal_startup_check',
+                            type: 'stream.online',
+                            version: '1',
+                            status: 'enabled',
+                            condition: { broadcaster_user_id: stream.user_id },
+                            transport: { method: 'internal' },
+                            created_at: new Date().toISOString()
+                        },
+                        event: {
+                            id: stream.id,
+                            broadcaster_user_id: stream.user_id,
+                            broadcaster_user_login: stream.user_login,
+                            broadcaster_user_name: stream.user_name,
+                            type: stream.type,
+                            started_at: stream.started_at
+                        }
+                    };
+                    
+                    if (this.gateway) {
+                        this.gateway.broadcast('stream.online', payload);
+                    }
+                    
+                    console.log(`[TwitchService] ${stream.user_name} is LIVE (Startup Check)`);
+                });
+            }
+        }
+    } catch (e) {
+        console.error('[TwitchService] Failed to check stream statuses:', e.message);
+    }
   }
 
   async disconnect() {
