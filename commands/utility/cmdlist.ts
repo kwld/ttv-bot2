@@ -21,6 +21,7 @@ rootAction:
   type: START
   settings:
     triggers: "!commands, !komendy, !help, !pomoc"
+    onlyOnline: true
   position:
     x: 50
     y: 100

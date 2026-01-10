@@ -22,6 +22,7 @@ rootAction:
   type: START
   settings:
     triggers: "!cancelraffle, !stopraffle"
+    onlyOnline: true
   position:
     x: 50
     y: 50

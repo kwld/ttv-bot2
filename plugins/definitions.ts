@@ -45,6 +45,12 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
         type: 'boolean',
         defaultValue: true,
         helperText: 'Prevents execution if stream is offline (EventSub still listens).'
+      },
+      includeSharedChat: {
+        label: 'Respond to Shared Chat',
+        type: 'boolean',
+        defaultValue: false,
+        helperText: 'plugins.START.shared_chat_hint'
       }
     },
     possibleErrors: ['GLOBAL_COOLDOWN', 'USER_COOLDOWN']

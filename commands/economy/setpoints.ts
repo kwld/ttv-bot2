@@ -28,6 +28,7 @@ rootAction:
   type: START
   settings:
     triggers: "!setpoints, !set"
+    onlyOnline: true
   position:
     x: 50
     y: 50

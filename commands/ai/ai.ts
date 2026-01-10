@@ -24,6 +24,7 @@ rootAction:
   type: START
   settings:
     triggers: "!ai, !pytanie, !bot"
+    onlyOnline: true
   position:
     x: 80
     y: 60

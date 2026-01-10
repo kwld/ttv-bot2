@@ -45,6 +45,7 @@ rootAction:
   settings:
     triggers: "!raffle, !losowanie"
     defaultDelay: '0.6'
+    onlyOnline: true
   position:
     x: -80
     y: 460

@@ -42,6 +42,7 @@ rootAction:
   type: START
   settings:
     triggers: "!klip, !clip"
+    onlyOnline: true
   position:
     x: 40
     y: 200

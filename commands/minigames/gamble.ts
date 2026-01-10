@@ -48,6 +48,7 @@ rootAction:
   type: START
   settings:
     triggers: "!gamble, !ruletka, !bet"
+    onlyOnline: true
   position:
     x: 50
     y: 200

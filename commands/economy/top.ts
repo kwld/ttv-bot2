@@ -24,6 +24,7 @@ rootAction:
   type: START
   settings:
     triggers: "!top, !ranking, !leaderboard"
+    onlyOnline: true
   position:
     x: 50
     y: 50

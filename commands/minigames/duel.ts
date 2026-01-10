@@ -51,6 +51,7 @@ rootAction:
   type: START
   settings:
     triggers: "!duel, !pojedynek"
+    onlyOnline: true
   position:
     x: 50
     y: 150

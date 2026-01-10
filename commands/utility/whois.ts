@@ -24,6 +24,7 @@ rootAction:
   type: START
   settings:
     triggers: "!whois, !sprawdz, !user, !konto, !id"
+    onlyOnline: true
   position:
     x: 50
     y: 100

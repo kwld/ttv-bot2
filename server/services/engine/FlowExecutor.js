@@ -1258,7 +1258,8 @@ export class FlowExecutor {
     this.registerUser(userEntity);
     
     // --- ONLY ONLINE CHECK ---
-    const onlyOnline = this.resolveBoolean(command.rootAction.settings.onlyOnline ?? true, { variables: {}, sender, args, channel, static: command.staticVariables, event: eventData });
+    // Change default to FALSE (Backward compatibility for legacy commands where undefined)
+    const onlyOnline = this.resolveBoolean(command.rootAction.settings.onlyOnline ?? false, { variables: {}, sender, args, channel, static: command.staticVariables, event: eventData });
     // Only block if strictly required and we are NOT in test mode (Sim/Local)
     if (onlyOnline && channel.isLive === false && channel.mode !== 'testing') {
         if (IS_DEV) console.log(`[FlowExecutor] Skipping ${command.name} because stream is offline (onlyOnline=true).`);

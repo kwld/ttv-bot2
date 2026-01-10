@@ -100,6 +100,7 @@ export class TwitchBot {
               message_type: 'text',
               channel_points_custom_reward_id: msg.redemption ? msg.redemption.id : null,
               is_self: msg.user.username === this.botUserId,
+              source_broadcaster_user_id: msg.tags['source-room-id'] || null, // Map source-room-id
               
               // 1:1 Raw Object Injection for robust processing
               raw_irc: {

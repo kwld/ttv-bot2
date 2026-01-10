@@ -1,7 +1,12 @@
 
 export const plugins = {
   plugins: {
-    START: { name: "Start Flow", desc: "Entry point. Configure triggers here." },
+    START: { 
+        name: "Start Flow", 
+        desc: "Entry point. Configure triggers here.",
+        events_hint: "Events that trigger this flow automatically.",
+        shared_chat_hint: "If enabled, triggers on messages from Shared Chat sessions (other channels)."
+    },
     SAY: { name: "Say (Send)", desc: "Send public message to chat." },
     LOG: { name: "System Log", desc: "Local console log only." },
     AI_CHAT: { name: "AI Chat (Gemini)", desc: "Generate intelligent response." },

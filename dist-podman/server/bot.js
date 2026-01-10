@@ -263,27 +263,6 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
         usersDB[channel.toLowerCase()] = usersDB[channelOwnerId];
     }
 
-    // 2. Broadcast to Frontend (Mirroring)
-    // DISABLED: Preventing chat duplication on frontend. Frontend TMI should handle display.
-    /*
-    if (!forcedEventType || forcedEventType === 'CHAT') {
-         broadcastToUser(channelOwnerId, { 
-             type: 'CHAT_MESSAGE', 
-             payload: {
-                 id: event.tags.id || crypto.randomUUID(),
-                 provider: 'twitch',
-                 channelId: channelOwnerId,
-                 channelName: channel,
-                 text: message,
-                 user: user,
-                 timestamp: Date.now(),
-                 isLive: true,
-                 isBot: event.is_self
-             }
-         });
-    }
-    */
-
     // Clean invisible characters including ZWSP, LRM, RLM, and the weird 034F
     // \p{C} - Other (Control, Format, etc)
     // \u034F - Combining Grapheme Joiner
@@ -402,10 +381,6 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
     // Find Command in Memory
     const channelCommands = commandsDB.filter(c => String(c.channelId) === String(channelOwnerId) && c.enabled);
     
-    if (IS_DEV) {
-        // console.log(`[Bot] Checking triggers: "${triggerWord}" | Active Cmds: ${channelCommands.length}`);
-    }
-
     const cmd = channelCommands.find(c => {
         const triggers = (c.rootAction.settings.triggers || '').split(',').map(t => t.trim().toLowerCase());
         const events = c.rootAction.settings.eventTriggers || [];
@@ -414,6 +389,13 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
         const canTrigger = !forcedEventType || forcedEventType === 'CHAT';
         const matchTrigger = canTrigger && triggers.includes(triggerWord);
         const matchEvent = events.some(evt => activeEvents.has(evt));
+        
+        // Filter Shared Chat if not enabled
+        if ((matchTrigger || matchEvent) && event.isSharedChat) {
+             const allowShared = c.rootAction.settings.includeSharedChat;
+             // Default to false/undefined -> ignore shared chat
+             if (!allowShared) return false;
+        }
         
         return matchTrigger || matchEvent;
     });

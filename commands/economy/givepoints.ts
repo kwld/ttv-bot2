@@ -27,6 +27,7 @@ rootAction:
   type: START
   settings:
     triggers: "!givepoints, !give, !przelew"
+    onlyOnline: true
   position:
     x: 50
     y: 50

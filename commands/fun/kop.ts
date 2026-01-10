@@ -24,6 +24,7 @@ rootAction:
   type: START
   settings:
     triggers: "!kop, !kick, !zasadz"
+    onlyOnline: true
   position:
     x: 50
     y: 100

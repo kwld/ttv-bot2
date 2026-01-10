@@ -316,7 +316,9 @@ export class GatewayClient {
                 id: event.message_id,
                 'msg-id': event.message_type === 'channel_points_highlighted' ? 'highlighted-message' : undefined
             },
-            is_self: event.is_self // IMPORTANT: Forward self flag
+            is_self: event.is_self, // IMPORTANT: Forward self flag
+            // Detect Shared Chat by source ID presence
+            isSharedChat: !!event.source_broadcaster_user_id
         };
 
         // Pass to the callback provided in constructor (avoids circular dep)
