@@ -904,7 +904,17 @@ export class TwitchService {
           addLog('ERROR', `Cleanup failed for ${twitchId}`, error);
       }
 
-      this.part(twitchId); 
+      // FIX: Ensure we part the correct channel name (login) not the ID
+      const tokenDoc = await Token.findOne({ twitchId, type: 'streamer' });
+      if (tokenDoc) {
+          this.part(tokenDoc.login);
+      } else {
+          // Fallback if token is already gone or missing, try parting the ID just in case
+          // although this shouldn't happen if data integrity is good.
+          // Or if ID happens to be name.
+          this.part(twitchId);
+      }
+
       await Token.deleteOne({ twitchId, type: 'streamer' });
 
       // --- SYNC WITH APP SERVER ---
