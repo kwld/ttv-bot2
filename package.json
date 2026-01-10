@@ -1,12 +1,15 @@
 {
   "name": "gemini-bot-flow-studio",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "server": "cd server && npm run dev",
+    "gateway": "cd twitch-gateway && npm run dev",
+    "dev:full": "concurrently -k -p \"[{name}]\" -n \"FRONTEND,BACKEND,GATEWAY\" -c \"cyan.bold,blue.bold,magenta.bold\" \"npm run dev\" \"npm run server\" \"npm run gateway\"",
     "build:docker": "node scripts/build-container.js docker",
     "build:podman": "node scripts/build-container.js podman"
   },
@@ -26,6 +29,7 @@
   "devDependencies": {
     "@types/node": "^25.0.3",
     "@vitejs/plugin-react": "^5.1.2",
+    "concurrently": "^9.1.2",
     "typescript": "^5.9.3",
     "vite": "^7.3.0"
   }

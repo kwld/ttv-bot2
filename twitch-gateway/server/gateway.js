@@ -37,31 +37,38 @@ export class Gateway {
     }
 
     // 2. Load or Generate Secure Token
-    if (!this.token) {
-      try {
-        if (fs.existsSync(configFile)) {
-          const data = JSON.parse(fs.readFileSync(configFile, 'utf8'));
-          if (data.token) {
-            this.token = data.token;
-            if (IS_DEV) console.log('[Gateway] Loaded existing Access Token from file.');
-          }
-        }
-      } catch (err) {
-        console.error('[Gateway] Error reading config file. Regenerating token.');
-      }
-
-      if (!this.token) {
-        this.token = crypto.randomBytes(32).toString('hex');
-        try {
-          fs.writeFileSync(configFile, JSON.stringify({ token: this.token }, null, 2));
-          console.log('[Gateway] Generated NEW Access Token.');
-          console.log(`[Gateway] Token saved to: ${configFile}`);
-        } catch (e) {
-          console.error('[Gateway] Failed to save token file:', e);
-        }
-      }
-    } else {
+    if (this.token) {
+        // ENV Token provided - sync to file for tools
         if (IS_DEV) console.log('[Gateway] Using Access Token from Environment Variable.');
+        try {
+            fs.writeFileSync(configFile, JSON.stringify({ token: this.token }, null, 2));
+        } catch (e) {
+            console.error('[Gateway] Failed to sync token file from ENV:', e);
+        }
+    } else {
+        // No ENV Token - Try File or Generate
+        try {
+            if (fs.existsSync(configFile)) {
+            const data = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+            if (data.token) {
+                this.token = data.token;
+                if (IS_DEV) console.log('[Gateway] Loaded existing Access Token from file.');
+            }
+            }
+        } catch (err) {
+            console.error('[Gateway] Error reading config file. Regenerating token.');
+        }
+
+        if (!this.token) {
+            this.token = crypto.randomBytes(32).toString('hex');
+            try {
+            fs.writeFileSync(configFile, JSON.stringify({ token: this.token }, null, 2));
+            console.log('[Gateway] Generated NEW Access Token.');
+            console.log(`[Gateway] Token saved to: ${configFile}`);
+            } catch (e) {
+            console.error('[Gateway] Failed to save token file:', e);
+            }
+        }
     }
     
     const masked = this.token ? `${this.token.substring(0, 6)}...` : 'NONE';
