@@ -306,6 +306,17 @@ export class TwitchService {
           
           // Mark as joined locally
           this.joinedChannels.add(user.login.toLowerCase());
+
+          // --- SYNC WITH APP SERVER ---
+          if (this.gateway) {
+              this.gateway.broadcast('CHANNEL_SYNC', { 
+                  action: 'upsert', 
+                  channelId: user.id, 
+                  channelName: user.display_name, 
+                  avatar: user.profile_image_url 
+              });
+          }
+
           return tokenDoc;
       } catch (e) {
           console.error('[Bot] Failed to add manual streamer:', e);
@@ -672,6 +683,16 @@ export class TwitchService {
             }
         }
     }
+    
+    // --- SYNC WITH APP SERVER ---
+    if (this.gateway) {
+        this.gateway.broadcast('CHANNEL_SYNC', { 
+            action: 'upsert', 
+            channelId: streamerToken.twitchId, 
+            channelName: streamerToken.displayName || streamerToken.login, 
+            avatar: streamerToken.avatar 
+        });
+    }
   }
   
   async removeStreamer(twitchId) {
@@ -694,5 +715,10 @@ export class TwitchService {
 
       this.part(twitchId); // Virtual Part
       await Token.deleteOne({ twitchId, type: 'streamer' });
+
+      // --- SYNC WITH APP SERVER ---
+      if (this.gateway) {
+          this.gateway.broadcast('CHANNEL_SYNC', { action: 'delete', channelId: twitchId });
+      }
   }
 }

@@ -1,6 +1,7 @@
 
 import WebSocket from 'ws';
 import { EventSubService } from './EventSub.js';
+import { ChannelSettingsModel, CommandModel, PointModel } from '../db.js';
 
 const IS_DEV = process.env.DEV === 'true';
 
@@ -126,7 +127,7 @@ export class GatewayClient {
         }
     }
 
-    handlePayload(payload) {
+    async handlePayload(payload) {
         if (IS_DEV) {
              // Avoid spamming PONG log, log everything else
              if (payload.type !== 'PONG') {
@@ -183,6 +184,48 @@ export class GatewayClient {
             if (payload.channels && Array.isArray(payload.channels)) {
                 this.channels.clear();
                 payload.channels.forEach(c => this.channels.add(c.toLowerCase()));
+            }
+            return;
+        }
+
+        // --- CHANNEL SYNC (AUTO-CREATE/DELETE) ---
+        if (type === 'CHANNEL_SYNC') {
+            const { action, channelId, channelName, avatar } = payload;
+            if (IS_DEV) console.log(`[GatewayClient] Syncing Channel ${channelId} (${action})`);
+            
+            if (action === 'upsert') {
+                try {
+                    await ChannelSettingsModel.findOneAndUpdate(
+                        { channelId },
+                        {
+                            channelId,
+                            channelName,
+                            displayName: channelName,
+                            profileImageUrl: avatar,
+                            botEnabled: true, // Default on
+                            // Use $setOnInsert to strictly NOT overwrite editors or locks if already exists
+                            $setOnInsert: { 
+                                isLocked: false, 
+                                clientLocked: false,
+                                serverLocked: false,
+                                editors: [], 
+                                currencyName: 'Points', 
+                                currencySymbol: '$' 
+                            }
+                        },
+                        { upsert: true, new: true }
+                    );
+                } catch (e) {
+                    console.error(`[GatewayClient] Failed to upsert channel ${channelId}:`, e);
+                }
+            } else if (action === 'delete') {
+                try {
+                    await ChannelSettingsModel.deleteOne({ channelId });
+                    await CommandModel.deleteMany({ channelId });
+                    await PointModel.deleteMany({ channelId });
+                } catch (e) {
+                    console.error(`[GatewayClient] Failed to delete channel ${channelId}:`, e);
+                }
             }
             return;
         }

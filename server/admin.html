@@ -152,9 +152,9 @@
                 <div class="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center shrink-0">
                     <h3 class="text-sm font-black text-white uppercase tracking-widest">Active Channels Overview</h3>
                     <div class="flex gap-2">
-                        <button onclick="subscribeRewards()" class="text-xs bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-lg font-bold uppercase transition-colors" title="Subscribe to Channel Points Events for all channels">Sub Events</button>
-                        <button onclick="generateBotLink()" class="text-xs bg-purple-900/50 hover:bg-purple-900 text-purple-300 hover:text-white px-3 py-1.5 rounded-lg font-bold uppercase transition-colors border border-purple-500/30">Bot Re-Auth</button>
-                        <button onclick="openAddChannelModal()" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg font-bold uppercase transition-colors"><i class="fas fa-plus mr-1"></i> Add Channel</button>
+                        <button onclick="openGateway()" class="text-xs bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg font-bold uppercase transition-colors shadow-lg shadow-purple-600/20 flex items-center gap-2">
+                            <i class="fas fa-external-link-alt"></i> Open Gateway
+                        </button>
                         <button onclick="loadStatus()" class="text-xs text-indigo-400 hover:text-white transition-colors font-bold uppercase px-3 py-1.5"><i class="fas fa-sync mr-1"></i> Refresh</button>
                     </div>
                 </div>
@@ -200,32 +200,6 @@
         </div>
     </div>
 
-    <!-- MODAL: ADD CHANNEL -->
-    <div id="addChannelModal" class="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center hidden opacity-0 transition-opacity duration-200">
-        <div class="bg-[#1a1f29] border border-slate-700 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
-            <div class="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
-                <h3 class="font-bold text-white">Add New Channel</h3>
-                <button onclick="closeAddChannelModal()" class="text-slate-500 hover:text-white"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="p-6 space-y-4">
-                <div>
-                    <label class="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Channel Name (Twitch User)</label>
-                    <div class="flex gap-2">
-                        <input id="newChannelName" class="flex-1 bg-[#0d1117] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white" placeholder="e.g. ninja">
-                        <button onclick="lookupChannel()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-bold uppercase"><i class="fas fa-search"></i> Lookup</button>
-                    </div>
-                </div>
-                <div>
-                    <label class="text-[10px] font-bold text-slate-500 uppercase mb-1 block">Channel ID (Numeric)</label>
-                    <input id="newChannelId" class="w-full bg-[#0d1117] border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono" readonly placeholder="Lookup to fill...">
-                </div>
-                <button onclick="submitNewChannel()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg uppercase tracking-wider transition-all shadow-lg mt-2">
-                    Create Channel
-                </button>
-            </div>
-        </div>
-    </div>
-
     <!-- SCRIPT SECTION -->
     <script>
         const API_BASE = '/api/admin';
@@ -255,6 +229,20 @@
             const res = await fetch(`${API_BASE}${endpoint}`, { method, headers, body: body ? JSON.stringify(body) : null });
             if (res.status === 401) { logout(); return null; }
             return res.json();
+        }
+
+        async function openGateway() {
+            try {
+                const res = await fetch('/api/config');
+                const data = await res.json();
+                if (data.gatewayUrl) {
+                    window.open(data.gatewayUrl, '_blank');
+                } else {
+                    alert("Gateway URL not configured.");
+                }
+            } catch (e) {
+                console.error(e);
+            }
         }
 
         // Subscriptions Logic
@@ -456,12 +444,6 @@
         async function toggleApi(channelId, enabled) { await apiCall('/toggle-api', 'POST', { channelId, enabled }); loadStatus(); }
         async function deleteChannel(id) { if(confirm("Are you sure?")) { await apiCall('/delete-channel', 'POST', { channelId: id }); loadStatus(); } }
         async function startRootSession() { const data = await apiCall('/root-session', 'POST', {}); if (data && data.link) window.open(data.link, '_blank'); }
-        async function generateBotLink() { const data = await apiCall('/bot-auth-link'); if (data && data.link) { prompt("Bot Link:", data.link); } }
-        async function subscribeRewards() { 
-            const res = await apiCall('/subscribe-rewards', 'POST', {}); 
-            if(res && res.success) alert(res.message); 
-            else alert("Subscription failed");
-        }
 
         // --- EDITOR MODAL LOGIC ---
         function openEditorsModal(channelId) {
@@ -541,47 +523,6 @@
             await loadStatus();
             const ch = currentStatusData?.channels?.find(c => c.id === currentEditingChannelId);
             renderEditors(ch ? ch.editors : []);
-        }
-
-        // --- ADD CHANNEL MODAL LOGIC ---
-        function openAddChannelModal() {
-            document.getElementById('newChannelName').value = '';
-            document.getElementById('newChannelId').value = '';
-            document.getElementById('addChannelModal').classList.remove('hidden');
-            setTimeout(() => document.getElementById('addChannelModal').classList.remove('opacity-0'), 10);
-        }
-
-        function closeAddChannelModal() {
-            document.getElementById('addChannelModal').classList.add('opacity-0');
-            setTimeout(() => document.getElementById('addChannelModal').classList.add('hidden'), 200);
-        }
-
-        async function lookupChannel() {
-            const name = document.getElementById('newChannelName').value.trim();
-            if(!name) return;
-            const btn = event.currentTarget;
-            const origText = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-circle-notch animate-spin"></i>';
-            
-            const user = await apiCall(`/lookup-user?query=${encodeURIComponent(name)}`);
-            if(user && user.id) {
-                document.getElementById('newChannelId').value = user.id;
-                // Auto-fix casing
-                document.getElementById('newChannelName').value = user.display_name;
-            } else {
-                alert("User not found!");
-            }
-            btn.innerHTML = origText;
-        }
-
-        async function submitNewChannel() {
-            const name = document.getElementById('newChannelName').value.trim();
-            const id = document.getElementById('newChannelId').value.trim();
-            if(!name || !id) { alert("Please lookup the channel first."); return; }
-            
-            await apiCall('/create-channel', 'POST', { channelId: id, channelName: name });
-            closeAddChannelModal();
-            loadStatus();
         }
 
         if (token) showDashboard();
