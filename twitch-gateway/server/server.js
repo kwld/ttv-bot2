@@ -284,12 +284,13 @@ app.get('/auth/login/:type', (req, res) => {
   ]; 
   
   const defaultBotScopes = [
-      'chat:read', 
-      'chat:edit', 
+      'user:read:email',
       'user:read:chat', 
+      'user:write:chat',
       'user:bot',
       'moderator:read:followers', // Only for Bot
-      'channel:bot'               // Only for Bot
+      'channel:bot',               // Only for Bot
+      'clips:edit'
   ];
 
   let scopeList = [];
@@ -301,7 +302,8 @@ app.get('/auth/login/:type', (req, res) => {
           scopeList = scopeList.filter(s => 
               s !== 'moderator:read:followers' && 
               s !== 'channel:bot' && 
-              s !== 'user:bot'
+              s !== 'user:bot' &&
+              s !== 'user:write:chat'
           );
       }
   } else {

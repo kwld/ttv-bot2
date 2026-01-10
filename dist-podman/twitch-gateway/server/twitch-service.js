@@ -1,33 +1,32 @@
 
 import { Token } from './models.js';
 import axios from 'axios';
-import { TwitchIRCClient } from './TwitchIRC.js';
+// import { TwitchIRCClient } from './TwitchIRC.js'; // DEPRECATED
 
 const IS_DEV = process.env.DEV === 'true';
 
 export class TwitchService {
   constructor(gateway) {
     this.gateway = gateway;
-    this.client = null;
+    // this.client = null; // DEPRECATED: No persistent IRC client
     this.botUserId = null;
+    this.botAccessToken = null;
+    this.joinedChannels = new Set(); // Track intended channels virtually
   }
 
   // Helper to broadcast current state
   broadcastChannelList() {
-      if (this.gateway && this.client) {
-          const channels = Array.from(this.client.getJoinedChannels());
+      if (this.gateway) {
+          const channels = Array.from(this.joinedChannels);
           this.gateway.broadcast('GATEWAY_CHANNELS', { channels });
       }
   }
 
   async initialize() {
-    // Ensure clean slate for client
-    await this.disconnect();
-
     // 1. Run Global Cleanup on Startup
     await this.cleanupOrphanedSubscriptions();
 
-    // 2. Initialize Bot Chat Client
+    // 2. Initialize Bot Token
     const botToken = await Token.findOne({ type: 'bot' });
     if (!botToken) {
       console.log('No Bot Token found. Please authenticate bot via /bot-admin');
@@ -36,130 +35,40 @@ export class TwitchService {
 
     if (botToken.isExpired()) {
       await this.refreshToken(botToken);
+    } else {
+        this.botAccessToken = botToken.accessToken;
     }
     
     this.botUserId = botToken.twitchId;
 
-    // Use custom TwitchIRCClient instead of tmi.js
-    this.client = new TwitchIRCClient({
-      token: botToken.accessToken,
-      username: botToken.login,
-      channels: [], // Will be populated dynamically via joins
-      
-      onConnected: () => {
-        if (IS_DEV) console.log('[TwitchIRC] Connected to Chat.');
-        if (this.gateway) {
-            this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: true });
-            this.gateway.broadcast('SYSTEM_LOG', {
-                type: 'SYSTEM_LOG',
-                message: 'Connected to Twitch IRC.',
-                timestamp: new Date().toISOString()
-            });
-            this.broadcastChannelList();
-        }
-      },
-
-      onDisconnected: () => {
-          if (this.gateway) {
-              this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: false });
-              this.gateway.broadcast('GATEWAY_CHANNELS', { channels: [] });
-          }
-      },
-
-      onJoin: (channel) => {
-          if (IS_DEV) console.log(`[TwitchIRC] JOINED #${channel}`);
-          if (this.gateway) {
-              this.gateway.broadcast('SYSTEM_LOG', {
-                  type: 'SYSTEM_LOG',
-                  message: `🟢 Joined IRC: #${channel}`,
-                  timestamp: new Date().toISOString()
-              });
-              this.broadcastChannelList();
-          }
-      },
-
-      onPart: (channel) => {
-          if (IS_DEV) console.log(`[TwitchIRC] PARTED #${channel}`);
-          if (this.gateway) {
-              this.gateway.broadcast('SYSTEM_LOG', {
-                  type: 'SYSTEM_LOG',
-                  message: `🔴 Parted IRC: #${channel}`,
-                  timestamp: new Date().toISOString()
-              });
-              this.broadcastChannelList();
-          }
-      },
-
-      onMessage: (msg) => {
-          if (IS_DEV) {
-               // console.log(`[IRC-DEBUG] #${msg.channel} ${msg.user.displayName}: ${msg.message}`);
-          }
-
-          // Convert internal msg format to EventSub-like structure for the gateway
-          const eventData = {
-              broadcaster_user_id: msg.tags['room-id'],
-              broadcaster_user_login: msg.channel,
-              broadcaster_user_name: msg.channel, 
-              chatter_user_id: msg.user.id,
-              chatter_user_login: msg.user.username,
-              chatter_user_name: msg.user.displayName,
-              message_id: msg.tags.id,
-              message: {
-                  text: msg.message,
-                  fragments: [] 
-              },
-              color: msg.user.color || '',
-              badges: Object.entries(msg.user.badges || {}).map(([set_id, id]) => ({ set_id, id, info: '' })),
-              message_type: 'text',
-              channel_points_custom_reward_id: msg.redemption ? msg.redemption.id : null,
-              is_self: msg.user.username === this.botUserId,
-              
-              // 1:1 Raw Object Injection for robust processing
-              raw_irc: {
-                  ...msg,
-                  tags: msg.tags // Explicitly include tags
-              }
-          };
-          
-          if (this.gateway) {
-              this.gateway.broadcast('channel.chat.message', {
-                  type: 'channel.chat.message',
-                  timestamp: new Date().toISOString(),
-                  event: eventData,
-                  subscription: { type: 'channel.chat.message', status: 'simulated_via_irc' }
-              });
-          }
-      },
-      
-      onAuthFailed: () => {
-          console.error('[TwitchIRC] Auth failed. Token might be invalid.');
-      }
-    });
-
-    this.client.connect();
+    // Simulate connection for Gateway status
+    if (this.gateway) {
+        this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: true });
+        this.gateway.broadcast('SYSTEM_LOG', {
+            type: 'SYSTEM_LOG',
+            message: 'Bot Service Initialized (API Mode).',
+            timestamp: new Date().toISOString()
+        });
+        this.broadcastChannelList();
+    }
     
+    console.log(`[TwitchService] Bot Initialized: ${botToken.login} (${this.botUserId}) via Helix API`);
+
     // Sync EventSub subscriptions
     await this.syncAllStreamers();
   }
 
   async disconnect() {
-    if (this.client) {
-      try {
-        this.client.disconnect();
-        if (IS_DEV) console.log('[TwitchIRC] Client Disconnected');
-      } catch (e) {
-        console.error('[TwitchIRC] Error disconnecting:', e);
-      }
-      this.client = null;
-      this.botUserId = null;
+    this.botUserId = null;
+    this.botAccessToken = null;
+    this.joinedChannels.clear();
+    if (this.gateway) {
+        this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: false });
     }
   }
 
   getJoinedChannels() {
-    if (this.client) {
-      return this.client.getJoinedChannels();
-    }
-    return [];
+    return Array.from(this.joinedChannels);
   }
   
   async syncAllStreamers() {
@@ -173,24 +82,83 @@ export class TwitchService {
   // --- Gateway Command Wrappers ---
 
   join(channel) {
-      if (this.client) {
-          if (IS_DEV) console.log(`[GatewayCmd] Joining ${channel}`);
-          // Our custom client handles queuing if not connected
-          this.client.join(channel);
+      // In API mode, we don't "join" chat rooms.
+      // We just track it to know we are active for this channel.
+      const lower = channel.toLowerCase().replace('#', '');
+      if (!this.joinedChannels.has(lower)) {
+          this.joinedChannels.add(lower);
+          if (IS_DEV) console.log(`[GatewayCmd] Virtual Join: ${channel}`);
+          this.broadcastChannelList();
       }
   }
 
   part(channel) {
-      if (this.client) {
-          if (IS_DEV) console.log(`[GatewayCmd] Parting ${channel}`);
-          this.client.part(channel);
+      const lower = channel.toLowerCase().replace('#', '');
+      if (this.joinedChannels.has(lower)) {
+          this.joinedChannels.delete(lower);
+          if (IS_DEV) console.log(`[GatewayCmd] Virtual Part: ${channel}`);
+          this.broadcastChannelList();
       }
   }
 
-  say(channel, message) {
-    if (this.client) {
-      if (IS_DEV) console.log(`[GatewayCmd] Saying in ${channel}: ${message}`);
-      this.client.say(channel, message);
+  async say(channelName, message) {
+    if (!this.botUserId || !this.botAccessToken) {
+        console.error('[GatewayCmd] Cannot send message: Bot not initialized.');
+        return;
+    }
+    
+    const targetName = channelName.toLowerCase().replace('#', '');
+    
+    try {
+        // Resolve Broadcaster ID from Name
+        // We check our local Token DB first for speed, then fall back to API
+        let broadcasterId = null;
+        
+        const streamerToken = await Token.findOne({ login: targetName, type: 'streamer' });
+        if (streamerToken) {
+            broadcasterId = streamerToken.twitchId;
+        } else {
+            // Check if we are sending to self (bot channel)
+            const botToken = await Token.findOne({ type: 'bot' });
+            if (botToken && botToken.login.toLowerCase() === targetName) {
+                broadcasterId = botToken.twitchId;
+            }
+        }
+
+        if (!broadcasterId) {
+             // Fallback API lookup
+             const res = await axios.get(`https://api.twitch.tv/helix/users?login=${targetName}`, {
+                 headers: {
+                     'Client-ID': process.env.TWITCH_CLIENT_ID,
+                     'Authorization': `Bearer ${this.botAccessToken}`
+                 }
+             });
+             if (res.data.data && res.data.data.length > 0) {
+                 broadcasterId = res.data.data[0].id;
+             }
+        }
+
+        if (!broadcasterId) {
+            console.error(`[GatewayCmd] Could not resolve broadcaster ID for channel: ${targetName}`);
+            return;
+        }
+
+        if (IS_DEV) console.log(`[GatewayCmd] Sending to ${targetName} (${broadcasterId}): ${message}`);
+
+        await axios.post('https://api.twitch.tv/helix/chat/messages', {
+            broadcaster_id: broadcasterId,
+            sender_id: this.botUserId,
+            message: message
+        }, {
+            headers: {
+                'Client-ID': process.env.TWITCH_CLIENT_ID,
+                'Authorization': `Bearer ${this.botAccessToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+    } catch (e) {
+        console.error(`[GatewayCmd] Failed to send message to ${targetName}:`, e.response?.data || e.message);
     }
   }
 
@@ -218,6 +186,12 @@ export class TwitchService {
       tokenDoc.expiresIn = res.data.expires_in;
       tokenDoc.obtainedAt = new Date();
       await tokenDoc.save();
+      
+      // Update local memory if it's the bot
+      if (tokenDoc.type === 'bot') {
+          this.botAccessToken = tokenDoc.accessToken;
+      }
+
       if (IS_DEV) console.log(`[Auth] Refreshed token for ${tokenDoc.login}`);
       return tokenDoc;
     } catch (e) {
@@ -395,13 +369,20 @@ export class TwitchService {
     }
     
     let botTokenDoc = await Token.findOne({ type: 'bot' });
-    if (botTokenDoc && botTokenDoc.isExpired()) {
+    if (!botTokenDoc) {
+        console.warn("[EventSub] No Bot Token found. Some subscriptions may fail.");
+    } else if (botTokenDoc.isExpired()) {
         botTokenDoc = await this.refreshToken(botTokenDoc);
     }
+    
+    // Ensure local access token is fresh
+    if (botTokenDoc) this.botAccessToken = botTokenDoc.accessToken;
 
     const definitions = [
       { type: 'stream.online', version: '1' },
       { type: 'stream.offline', version: '1' },
+      // NEW: Chat Message
+      { type: 'channel.chat.message', version: '1', requiresBot: true },
       { type: 'channel.channel_points_custom_reward_redemption.add', version: '1' },
       { type: 'channel.channel_points_automatic_reward_redemption.add', version: '2' },
       { type: 'channel.cheer', version: '1' },
@@ -425,7 +406,8 @@ export class TwitchService {
       'channel.cheer': 'bits:read',
       'channel.bits.use': 'bits:read',
       'channel.channel_points_custom_reward_redemption.add': 'channel:read:redemptions',
-      'channel.channel_points_automatic_reward_redemption.add': 'channel:read:redemptions'
+      'channel.channel_points_automatic_reward_redemption.add': 'channel:read:redemptions',
+      'channel.chat.message': 'user:read:chat' // User scope (bot)
     };
 
     const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
@@ -436,14 +418,24 @@ export class TwitchService {
     const allSubs = await this.getAllSubscriptions(appAccessToken);
 
     for (const def of definitions) {
-        const requiredScope = SCOPE_REQUIREMENTS[def.type];
-        if (requiredScope && (!streamerToken.scope || !streamerToken.scope.includes(requiredScope))) {
-            continue; 
+        // Skip if required scopes missing on STREAMER token (unless it's a bot-only sub)
+        if (!def.requiresBot) {
+             const requiredScope = SCOPE_REQUIREMENTS[def.type];
+             if (requiredScope && (!streamerToken.scope || !streamerToken.scope.includes(requiredScope))) {
+                 continue; 
+             }
         }
 
         const condition = { broadcaster_user_id: streamerToken.twitchId };
+        
         if (def.requiresModerator) {
-            condition.moderator_user_id = streamerToken.twitchId;
+            condition.moderator_user_id = streamerToken.twitchId; // Self-mod
+        }
+        
+        if (def.requiresBot) {
+            if (!botTokenDoc) continue;
+            // For chat messages, we need the user_id of the bot who has user:read:chat scope
+            condition.user_id = botTokenDoc.twitchId;
         }
 
         const validSub = allSubs.find(s => {
@@ -456,9 +448,12 @@ export class TwitchService {
             return keysA.every(key => String(condition[key]) === String(sCond[key]));
         });
 
+        // Cleanup duplicates
         const relevantSubs = allSubs.filter(s => 
             s.type === def.type && 
-            s.condition.broadcaster_user_id === streamerToken.twitchId
+            s.condition.broadcaster_user_id === streamerToken.twitchId &&
+            // Also check bot ID if applicable to avoid deleting other bots' subs
+            (!def.requiresBot || s.condition.user_id === botTokenDoc?.twitchId)
         );
 
         for (const sub of relevantSubs) {
@@ -469,9 +464,9 @@ export class TwitchService {
         if (validSub) continue;
         
         // Subscription Logic (App Token vs User Token if needed)
-        let accessToken = appAccessToken;
-        // Most EventSubs use App Token unless specified (none here currently forced to User)
-
+        // Chat Message (v1) requires App Token + Scopes or User Token
+        // Using App Token is standard for server-to-server
+        
         try {
             await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
             type: def.type,
@@ -485,7 +480,7 @@ export class TwitchService {
             }, {
             headers: {
                 'Client-ID': process.env.TWITCH_CLIENT_ID,
-                'Authorization': `Bearer ${accessToken}`,
+                'Authorization': `Bearer ${appAccessToken}`,
                 'Content-Type': 'application/json'
             }
             });
@@ -516,10 +511,7 @@ export class TwitchService {
           console.error(`[Bot] Error cleaning up subscriptions for ${twitchId}:`, error.message);
       }
 
-      if(this.client) {
-          const streamer = await Token.findOne({ twitchId, type: 'streamer' });
-          if (streamer) this.client.part(streamer.login);
-      }
+      this.part(twitchId); // Virtual Part
       await Token.deleteOne({ twitchId, type: 'streamer' });
   }
 }
