@@ -428,6 +428,8 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
         log('Exec', `Running ${cmd.name} in #${channel} (Trigger: ${triggerWord})`);
         const args = forcedEventType && forcedEventType !== 'CHAT' ? [] : parts.slice(1);
         
+        const isLive = cachedLiveStreams.has(channel.toLowerCase());
+
         try {
             const execId = crypto.randomUUID();
             const allCmdsStr = channelCommands
@@ -447,7 +449,8 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
                     currencyName: settings?.currencyName || 'Points', 
                     currencySymbol: settings?.currencySymbol || '$', 
                     mode: 'server', 
-                    apiEnabled: !!settings?.apiEnabled 
+                    apiEnabled: !!settings?.apiEnabled,
+                    isLive: isLive // Inject Live Status
                 }, 
                 execId,
                 null,

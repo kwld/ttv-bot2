@@ -1251,6 +1251,15 @@ export class FlowExecutor {
     const userEntity = { ...sender }; 
     this.registerUser(userEntity);
     
+    // --- ONLY ONLINE CHECK ---
+    const onlyOnline = this.resolveBoolean(command.rootAction.settings.onlyOnline ?? true, { variables: {}, sender, args, channel, static: command.staticVariables, event: eventData });
+    // Only block if strictly required and we are NOT in test mode (Sim/Local)
+    if (onlyOnline && channel.isLive === false && channel.mode !== 'testing') {
+        if (IS_DEV) console.log(`[FlowExecutor] Skipping ${command.name} because stream is offline (onlyOnline=true).`);
+        return;
+    }
+    // -------------------------
+    
     // --- COOLDOWN CHECK ---
     const now = Date.now();
     const cmdState = this.commandStates.get(command.id) || { globalLast: 0, userLast: new Map() };
@@ -1371,7 +1380,16 @@ export class FlowExecutor {
       },
       args,
       static: command.staticVariables,
-      channel: { id: channel.id, name: channel.name, currency: channel.currencyName, currencyName: channel.currencyName, currencySymbol: channel.currencySymbol, mode: channel.mode, apiEnabled: channel.apiEnabled },
+      channel: { 
+          id: channel.id, 
+          name: channel.name, 
+          currency: channel.currencyName, 
+          currencyName: channel.currencyName, 
+          currencySymbol: channel.currencySymbol, 
+          mode: channel.mode, 
+          apiEnabled: channel.apiEnabled,
+          isLive: channel.isLive // Passed from Bot
+      },
       datetime: dt,
       event: eventData, // Inject Event Data
       variables: {
@@ -1462,7 +1480,15 @@ export class FlowExecutor {
         },
         args: overrides.args,
         static: command.staticVariables,
-        channel: { id: channel.id, name: channel.name, currency: channel.currencyName, currencySymbol: channel.currencySymbol, mode: channel.mode, apiEnabled: channel.apiEnabled },
+        channel: { 
+            id: channel.id, 
+            name: channel.name, 
+            currency: channel.currencyName, 
+            currencySymbol: channel.currencySymbol, 
+            mode: channel.mode, 
+            apiEnabled: channel.apiEnabled,
+            isLive: true // Always true for partial test run
+        },
         datetime: dt,
         event: {}, // Empty event data for partial/debug
         variables: {

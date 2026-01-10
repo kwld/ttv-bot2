@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ServerBridge } from '../services/ServerBridge';
 import { Channel, ChatMessage, Command, User, UserEntity, Provider, ServerProcess, ServerHistoryItem, WaitingInfo } from '../types';
@@ -350,8 +349,10 @@ export const useServerBridge = ({
                     return p;
                 }));
                 if (update.updates && update.updates.waitingData !== undefined) {
-                    if (update.updates.waitingData) {
-                        setActiveWaitings(prev => ({ ...prev, [update.executionId]: { ...update.updates.waitingData, channelId: activeChannelIdRef.current } }));
+                    // Safe guard spread on potentially non-object type if waitingData comes from untyped source
+                    if (update.updates.waitingData && typeof update.updates.waitingData === 'object') {
+                        const wd = update.updates.waitingData as any;
+                        setActiveWaitings(prev => ({ ...prev, [update.executionId]: { ...wd, channelId: activeChannelIdRef.current } }));
                     } else {
                         setActiveWaitings(prev => { const n = { ...prev }; delete n[update.executionId]; return n; });
                     }

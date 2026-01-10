@@ -1,5 +1,4 @@
 
-
 import { ActionType, ActionPlugin } from '../types';
 
 export const PLUGINS: Record<ActionType, ActionPlugin> = {
@@ -40,6 +39,12 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
         label: 'Globalne opóźnienie startu (s)',
         type: 'number',
         placeholder: '0.6'
+      },
+      onlyOnline: {
+        label: 'Only Run When Live',
+        type: 'boolean',
+        defaultValue: true,
+        helperText: 'Prevents execution if stream is offline (EventSub still listens).'
       }
     },
     possibleErrors: ['GLOBAL_COOLDOWN', 'USER_COOLDOWN']

@@ -1,8 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Channel, User } from '../types';
+import { Channel } from '../types';
 import { useTranslation } from 'react-i18next';
-import ChannelBadge from './ChannelBadge';
 
 interface ChannelTabsProps {
   channels: Channel[];
@@ -10,41 +9,40 @@ interface ChannelTabsProps {
   onSelectChannel: (id: string) => void;
   onToggleConnection: (id: string) => void;
   onReorderChannels: (fromId: string, toId: string) => void;
-  onAddChannel: () => void; // Now triggers the ConfigModal in create mode
+  onAddChannel: () => void; 
   onDeleteChannel?: (id: string) => void; 
   joinedChannels: Set<string>; 
   placement: 'left' | 'right';
   docked?: boolean;
   onCheckLiveStatus?: () => void;
   isCheckingLive?: boolean;
-  onUpdateChannel?: (channel: Channel) => void; // Triggers Edit mode
-  authenticatedUser?: User | null;
+  onUpdateChannel?: (channel: Channel) => void;
+  authenticatedUser?: any;
   isServerReady?: boolean;
   actualJoinedChannels?: Set<string>;
   hiddenChannelIds?: Set<string>;
   onToggleHidden?: (id: string, forceHidden?: boolean) => void;
-  onEditChannel: (channel: Channel) => void; // New explicit edit handler
-  onToggleLock?: (id: string) => void; // New explicit lock handler
-  nextCheckTime?: number; // New Prop for countdown
+  onEditChannel: (channel: Channel) => void;
+  onToggleLock?: (id: string) => void;
+  nextCheckTime?: number;
   onAddChannelFromUrl?: (url: string) => void;
 }
 
-// Helper to determine style based on mode/provider
-const getChannelTypeStyle = (mode: string, provider: string) => {
+const getChannelModeClass = (mode: string, provider: string) => {
     if (mode === 'testing') {
-        return "bg-amber-500/20 text-amber-400 border-amber-500/30"; // AMBER
+        return "bg-amber-500/20 text-amber-400 border-amber-500/30"; 
     }
     if (mode === 'server') {
-        return "bg-cyan-500/20 text-cyan-300 border-cyan-400/50 shadow-[0_0_5px_rgba(34,211,238,0.3)]"; // LIGHTBLUE NEON
+        return "bg-cyan-500/20 text-cyan-300 border-cyan-400/50 shadow-[0_0_5px_rgba(34,211,238,0.3)]"; 
     }
     if (mode === 'serverless') {
-        if (provider === 'kick') return "bg-green-500/20 text-green-400 border-green-500/30"; // KICK GREEN
-        return "bg-purple-500/20 text-purple-400 border-purple-500/30"; // TWITCH PURPLE
+        if (provider === 'kick') return "bg-green-500/20 text-green-400 border-green-500/30"; 
+        return "bg-purple-500/20 text-purple-400 border-purple-500/30"; 
     }
     return "bg-slate-700 text-slate-400 border-transparent";
 };
 
-const ChannelTabs: React.FC<ChannelTabsProps> = ({
+export const ChannelTabs: React.FC<ChannelTabsProps> = ({
   channels,
   activeChannelId,
   onSelectChannel,
@@ -71,7 +69,7 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
   const isLeft = placement === 'left';
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isExpanded, setIsExpanded] = useState(false); // Drawer state
+  const [isExpanded, setIsExpanded] = useState(false); 
 
   const [dragOverChannelId, setDragOverChannelId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'top' | 'bottom' | null>(null);
@@ -82,20 +80,15 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-focus logic
   useEffect(() => { if (isSearchOpen) searchInputRef.current?.focus(); }, [isSearchOpen]);
 
-  // --- Circular Progress Logic ---
   const [progress, setProgress] = useState(0);
-  
-  // Use a ref to track nextCheckTime so it can be used in the interval
-  // without adding it to the dependency array (which causes re-renders/looping)
   const nextCheckTimeRef = useRef(nextCheckTime);
   useEffect(() => { nextCheckTimeRef.current = nextCheckTime; }, [nextCheckTime]);
 
   useEffect(() => {
       if (isCheckingLive) {
-          setProgress(0); // Spinner mode
+          setProgress(0); 
           return;
       }
       
@@ -104,7 +97,7 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
           const target = nextCheckTimeRef.current;
           
           if (target > now) {
-              const totalDuration = 120000; // 2 minutes
+              const totalDuration = 120000; 
               const remaining = target - now;
               const ratio = Math.max(0, Math.min(1, remaining / totalDuration));
               setProgress(ratio);
@@ -113,25 +106,19 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
           }
       };
 
-      // Initial Call
       updateProgress();
-
       const timer = setInterval(updateProgress, 100);
       return () => clearInterval(timer);
-  }, [isCheckingLive]); // Do not include nextCheckTime
+  }, [isCheckingLive]);
 
   const radius = 10;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - progress);
 
-  // --- Grouping Logic for Merged View ---
   const groupedChannels = useMemo(() => {
       const groups: Record<string, Channel[]> = {};
-      
-      // Filter out hidden first
       const visible = channels.filter(c => !hiddenChannelIds.has(c.id));
       
-      // If dragging, include dragged item even if hidden
       if (isDragging && draggedChannelId) {
           const dragged = channels.find(c => c.id === draggedChannelId);
           if (dragged && !visible.some(c => c.id === draggedChannelId)) {
@@ -145,15 +132,12 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
           groups[key].push(ch);
       });
 
-      // Filter for horizontal stack limit (approx 10 groups)
-      // We process grouping logic first, then slice the groups.
       let groupList = Object.values(groups);
       
       if (isSearchOpen && searchQuery.trim()) {
           const lower = searchQuery.toLowerCase();
           groupList = groupList.filter(g => g[0].name.toLowerCase().includes(lower));
       } else {
-          // Priority logic: Groups containing active channel come first
           const activeGroupIdx = groupList.findIndex(g => g.some(c => c.id === activeChannelId));
           if (activeGroupIdx > 0) {
               const activeGroup = groupList.splice(activeGroupIdx, 1)[0];
@@ -165,9 +149,8 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
       return groupList;
   }, [channels, isSearchOpen, searchQuery, isDragging, draggedChannelId, hiddenChannelIds, activeChannelId]);
 
-  // --- Filter Logic for Expanded Drawer (All Channels) ---
   const allChannelsList = useMemo(() => {
-      let list = [...channels];
+      let list = channels.slice();
       if (searchQuery.trim()) {
           const lower = searchQuery.toLowerCase();
           list = list.filter(ch => ch.name.toLowerCase().includes(lower));
@@ -175,7 +158,6 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
       return list;
   }, [channels, searchQuery]);
 
-  // --- DnD Handlers ---
   const handleDragStart = (e: React.DragEvent, id: string) => {
       e.stopPropagation();
       e.dataTransfer.setData('channelId', id);
@@ -186,7 +168,7 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
       }, 0);
   };
 
-  const handleDragEnd = (e: React.DragEvent) => {
+  const handleDragEnd = (e: React.DragEvent, id: string) => {
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(false);
@@ -198,8 +180,6 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
   const handleDragOverChannel = (e: React.DragEvent, id: string) => {
       e.preventDefault();
       e.stopPropagation();
-      
-      // Calculate split
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       const y = e.clientY - rect.top;
       const h = rect.height;
@@ -220,10 +200,7 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
       setDraggedChannelId(null);
       
       if (draggedId && draggedId !== targetId) {
-          // 1. Unhide dragged channel if needed
           if (onToggleHidden) onToggleHidden(draggedId, false);
-
-          // 2. Perform Reorder
           let targetReorderId = targetId;
           const allIds = channels.map(c => c.id);
           const targetIdx = allIds.indexOf(targetId);
@@ -238,21 +215,17 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
           
           onReorderChannels(draggedId, targetReorderId);
 
-          // 3. Auto-Hide Overflow Logic
-          // Determine where it fits in the *visible* list to see if we push anything out
           const currentVisibleIds = channels
               .filter(c => !hiddenChannelIds.has(c.id) && c.id !== draggedId)
               .map(c => c.id);
           
           const targetVisibleIndex = currentVisibleIds.indexOf(targetId);
 
-          // If we dropped onto a visible channel
           if (targetVisibleIndex !== -1 && onToggleHidden) {
               const insertIndex = finalPosition === 'bottom' ? targetVisibleIndex + 1 : targetVisibleIndex;
-              const newVisibleList = [...currentVisibleIds];
+              const newVisibleList = currentVisibleIds.slice();
               newVisibleList.splice(insertIndex, 0, draggedId);
 
-              // If list exceeds 10, hide the 11th item (index 10)
               if (newVisibleList.length > 10) {
                   const overflowId = newVisibleList[10];
                   onToggleHidden(overflowId, true);
@@ -261,7 +234,6 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
       }
   };
 
-  // --- Add Button DnD Handlers ---
   const handleAddDragOver = (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -285,54 +257,30 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
       }
   };
 
-  // --- Capacity Color ---
   const totalCount = channels.length;
   const countColor = totalCount >= 100 ? 'bg-red-500 text-white' : (totalCount >= 90 ? 'bg-amber-500 text-black' : 'bg-slate-800 text-slate-400');
 
-  // Helper to determine status
   const getStatus = (ch: Channel) => {
-      // 1. Server Mode Status Logic
-      if (ch.mode === 'server') {
-          // Priority 1: Server says it's joined
-          if (ch.serverJoined) {
-              return { label: 'JOINED', color: 'text-emerald-400', bg: 'bg-emerald-500', border: 'border-emerald-500' };
-          }
-          // Priority 2: Disabled explicitly
-          if (ch.botEnabled === false) {
-              return { label: 'OFF', color: 'text-red-400', bg: 'bg-red-600', border: 'border-slate-700' };
-          }
-          // Priority 3: Enabled but not joined (Waiting for stream online or reconnect)
-          return { label: 'WAITING', color: 'text-amber-400', bg: 'bg-amber-500', border: 'border-amber-500' };
-      }
-
-      // 2. Local/Client Mode Logic
       const name = ch.name.toLowerCase();
-      
       const isActualJoined = actualJoinedChannels.has(name) || (joinedChannels.has(name) && actualJoinedChannels.has(name)); 
-      
       const isIntentOn = joinedChannels.has(name) || !!ch.isLocked;
 
       if (isActualJoined) {
           return { label: 'JOINED', color: 'text-emerald-400', bg: 'bg-emerald-500', border: 'border-emerald-500' };
       }
-      
       if (isIntentOn) {
           return { label: 'WAITING', color: 'text-amber-400', bg: 'bg-amber-500', border: 'border-amber-500' };
       }
-      
       return { label: 'OFF', color: 'text-red-400', bg: 'bg-red-600', border: 'border-slate-700' };
   };
 
   return (
     <div className={`absolute top-[80px] flex flex-col gap-2 z-30 ${isLeft ? 'left-0 items-start' : 'right-0 items-end'}`}>
-        
-        {/* TOP CONTROL BAR */}
         <div className={`
             flex items-center gap-1 bg-[#141721] p-1 rounded-full border border-slate-700 shadow-lg transition-all duration-300
             ${isLeft ? 'flex-row ml-1' : 'flex-row-reverse mr-1'}
             ${isExpanded ? 'w-64' : 'w-auto'}
         `}>
-            {/* 1. Search (Left) */}
             <div className={`flex items-center relative transition-all ${isSearchOpen ? 'w-24 bg-slate-800 rounded-full' : 'w-8'}`}>
                 <button 
                     onClick={() => { setIsSearchOpen(!isSearchOpen); if(isSearchOpen) setSearchQuery(''); }}
@@ -351,16 +299,12 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                 )}
             </div>
 
-            {/* Spacer */}
             <div className="w-px h-4 bg-slate-700 mx-1"></div>
 
-            {/* 2. Manual Refresh (Status Check) with Circular Progress */}
             {onCheckLiveStatus && (
                 <div className="relative w-8 h-8 flex items-center justify-center">
                     <svg className="absolute top-0 left-0 w-full h-full transform -rotate-90 p-0.5" viewBox="0 0 24 24">
-                        {/* Background Track */}
                         <circle cx="12" cy="12" r={radius} fill="none" stroke="#1e293b" strokeWidth="2" />
-                        {/* Progress Arc (Only show if not spinning) */}
                         {!isCheckingLive && (
                             <circle 
                                 cx="12" cy="12" r={radius} fill="none" stroke="#6366f1" strokeWidth="2" 
@@ -383,7 +327,6 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                 </div>
             )}
 
-            {/* 3. Add (Center) */}
             <button 
                 onClick={onAddChannel}
                 onDragOver={handleAddDragOver}
@@ -395,10 +338,8 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                 <i className={`fas ${isDragOverAdd ? 'fa-link' : 'fa-plus'} text-xs`}></i>
             </button>
 
-            {/* Spacer */}
             <div className="w-px h-4 bg-slate-700 mx-1"></div>
 
-            {/* 4. Hamburger (Right) */}
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
                 className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${isExpanded ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
@@ -408,7 +349,6 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
             </button>
         </div>
 
-        {/* EXPANDED DRAWER (MANAGEMENT) */}
         {isExpanded && (
             <div className={`
                 absolute top-12 bottom-[-80vh] w-[600px] bg-[#1a1f29] border border-slate-700 rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-top-4 z-50
@@ -427,23 +367,15 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                         const isDropTarget = dragOverChannelId === ch.id && draggedChannelId !== ch.id;
                         
                         const status = getStatus(ch);
-                        const isPowerOn = ch.mode === 'server' 
-                            ? (ch.botEnabled !== false) 
-                            : (joinedChannels.has(ch.name.toLowerCase()) || !!ch.isLocked);
-                            
+                        const isPowerOn = joinedChannels.has(ch.name.toLowerCase()) || !!ch.isLocked;
                         const isLocked = !!ch.isLocked;
                         
-                        // Check deletion permission: Allow Testing, Serverless, and Owned Server channels
                         const canDelete = ch.mode === 'testing' || ch.mode === 'serverless' || (ch.mode === 'server' && authenticatedUser && ch.id === authenticatedUser.id);
+                        const modeStyle = getChannelModeClass(ch.mode, ch.provider);
 
-                        // Mode Styles
-                        const modeStyle = getChannelTypeStyle(ch.mode, ch.provider);
-
-                        // --- Server Status Split ---
                         const isServerMode = ch.mode === 'server';
                         const serverJoined = ch.serverJoined;
                         const botEnabled = ch.botEnabled !== false;
-                        const localJoined = actualJoinedChannels.has(ch.name.toLowerCase());
                         
                         return (
                             <div 
@@ -460,19 +392,13 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                                     ${activeChannelId === ch.id ? 'border-l-4 border-l-indigo-500' : ''}
                                 `}
                             >
-                                {/* Drop Indicators */}
                                 {isDropTarget && dropPosition === 'top' && <div className="absolute top-0 left-0 right-0 h-0.5 bg-indigo-500 z-10"></div>}
                                 {isDropTarget && dropPosition === 'bottom' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 z-10"></div>}
 
-                                {/* Col 1: Index */}
                                 <div className="text-[9px] font-mono text-slate-500 text-center select-none">#{idx + 1}</div>
-                                
-                                {/* Col 2: Drag Handle */}
                                 <div className="shrink-0 cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 flex justify-center">
                                     <i className="fas fa-grip-vertical text-[10px]"></i>
                                 </div>
-
-                                {/* Col 3: Icon */}
                                 <div 
                                     className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border relative"
                                     style={{ backgroundColor: `${ch.color}20`, borderColor: `${ch.color}40`, color: ch.color }}
@@ -480,7 +406,6 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                                     <i className={`fab fa-${ch.provider} text-[12px]`}></i>
                                 </div>
 
-                                {/* Col 4: Name + Mode Info (Takes remaining space) */}
                                 <div className="flex flex-col justify-center min-w-0">
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs font-bold text-white truncate" title={ch.name}>{ch.name}</span>
@@ -493,52 +418,49 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                                     </div>
                                 </div>
 
-                                {/* Col 5: Status Badge (Fixed Width, Aligned) */}
-                                <div className="flex justify-center">
-                                    {isServerMode ? (
-                                        <div className="flex gap-1">
-                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider text-center ${serverJoined ? 'bg-emerald-500 text-[#1a1f29]' : (botEnabled ? 'bg-amber-500 text-black' : 'bg-red-600 text-white')}`}>
-                                                BOT
-                                            </span>
-                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider text-center ${localJoined ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-400'}`}>
-                                                VIEW
-                                            </span>
+                                <div className="flex justify-center flex-col gap-0.5 items-center">
+                                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider w-full text-center ${status.bg} text-[#1a1f29]`}>
+                                        {status.label}
+                                    </span>
+                                    {isServerMode && (
+                                        <div className="flex gap-1 items-center" title="Server Bot Status">
+                                            <div className={`w-1.5 h-1.5 rounded-full ${serverJoined ? 'bg-emerald-500' : (botEnabled ? 'bg-amber-500' : 'bg-red-500')}`}></div>
+                                            <span className="text-[7px] text-slate-500 font-mono uppercase">SRV</span>
                                         </div>
-                                    ) : (
-                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider w-full text-center ${status.bg} text-[#1a1f29]`}>
-                                            {status.label}
-                                        </span>
                                     )}
                                 </div>
 
-                                {/* Col 6: Actions */}
                                 <div className="flex items-center gap-1.5 justify-end">
-                                    {/* Power Toggle */}
                                     <button 
                                         onClick={() => onToggleConnection(ch.id)}
                                         className={`w-7 h-7 rounded hover:bg-slate-700 transition-colors ${isPowerOn ? 'text-emerald-400' : 'text-slate-600'}`}
-                                        title={isPowerOn ? t('main_panel.bot_on') : t('main_panel.bot_off')}
+                                        title={isPowerOn ? "Disconnect Local Client" : "Connect Local Client"}
                                     >
                                         <i className="fas fa-power-off text-[10px]"></i>
                                     </button>
 
-                                    {/* Lock Toggle */}
                                     {onToggleLock && (
                                         <button 
                                             onClick={() => onToggleLock(ch.id)}
                                             className={`w-7 h-7 rounded hover:bg-slate-700 transition-colors ${isLocked ? 'text-amber-400' : 'text-slate-600'}`}
-                                            title={isLocked ? t('channels_modal.tooltip_unlock') : t('channels_modal.tooltip_lock')}
+                                            title={isLocked ? "Unlock (Allow auto-part)" : "Lock (Stay connected locally)"}
                                         >
                                             <i className={`fas ${isLocked ? 'fa-lock' : 'fa-lock-open'} text-[10px]`}></i>
                                         </button>
                                     )}
 
-                                    {/* Edit */}
-                                    <button onClick={() => onEditChannel(ch)} className="w-7 h-7 rounded hover:bg-slate-700 text-slate-500 hover:text-indigo-400 transition-colors">
+                                    <div
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (onEditChannel && ch) {
+                                                onEditChannel(ch); // Removed spread to fix TS error
+                                            }
+                                        }}
+                                        className="w-7 h-7 rounded hover:bg-slate-700 text-slate-500 hover:text-indigo-400 transition-colors flex items-center justify-center cursor-pointer"
+                                    >
                                         <i className="fas fa-cog text-[10px]"></i>
-                                    </button>
+                                    </div>
                                     
-                                    {/* Visibility */}
                                     {onToggleHidden && (
                                         <button 
                                             onClick={() => onToggleHidden(ch.id)} 
@@ -548,7 +470,6 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                                         </button>
                                     )}
 
-                                    {/* Delete Button (Conditional) */}
                                     {canDelete && onDeleteChannel ? (
                                         <button 
                                             onClick={() => onDeleteChannel(ch.id)}
@@ -558,7 +479,6 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                                             <i className="fas fa-trash-alt text-[10px]"></i>
                                         </button>
                                     ) : (
-                                        /* Disabled Delete Placeholder to maintain alignment */
                                         <div className="w-7 h-7 flex items-center justify-center text-slate-700 opacity-50 cursor-not-allowed ml-1 relative" title="Cannot delete">
                                             <i className="fas fa-trash-alt text-[10px]"></i>
                                             <div className="absolute w-full h-[1px] bg-slate-600 rotate-45 transform"></div>
@@ -572,28 +492,22 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
             </div>
         )}
 
-        {/* COLLAPSED HORIZONTAL LIST (Grouped for Duplicate Merging) */}
         {!isExpanded && (
             <div className={`flex flex-col gap-1 transition-all duration-300 ${isLeft ? 'items-start ml-1' : 'items-end mr-1'}`}>
                 {groupedChannels.map((group, groupIndex) => {
-                    // Logic to handle multiple channels with same name (Server vs Client)
                     const isMulti = group.length > 1;
-                    
-                    // Determine which one is 'active' or default to first
                     let displayChannel = group.find(c => c.id === activeChannelId);
                     if (!displayChannel) {
                         displayChannel = group.find(c => c.mode === 'serverless') || group[0];
                     }
+                    
+                    if (!displayChannel) return null;
 
                     const isActive = activeChannelId === displayChannel.id;
                     const isLocked = !!displayChannel.isLocked;
                     const status = getStatus(displayChannel);
-
-                    // --- Server Status Split ---
                     const isServerMode = displayChannel.mode === 'server';
                     const serverJoined = displayChannel.serverJoined;
-                    const botEnabled = displayChannel.botEnabled !== false;
-                    const localJoined = actualJoinedChannels.has(displayChannel.name.toLowerCase());
                     
                     return (
                         <div key={group[0].name + groupIndex} className="relative group/item" style={{ zIndex: 20 - groupIndex }}>
@@ -611,16 +525,9 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                             >
                                 <div className="w-7 h-7 flex items-center justify-center shrink-0 relative">
                                     <i className={`fab fa-${displayChannel.provider} text-lg`}></i>
-                                    {/* Status Dot Overlay */}
-                                    {isServerMode ? (
-                                        <>
-                                            {/* Server Bot Status (Top Right) */}
-                                            <div title={`Server Bot: ${serverJoined ? 'Joined' : 'Disconnected'}`} className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#141721] ${serverJoined ? 'bg-emerald-500' : (botEnabled ? 'bg-amber-500' : 'bg-red-500')}`}></div>
-                                            {/* Local Client Status (Bottom Right) */}
-                                            <div title={`Local Chat: ${localJoined ? 'Connected' : 'Disconnected'}`} className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#141721] ${localJoined ? 'bg-indigo-500' : 'bg-slate-600'}`}></div>
-                                        </>
-                                    ) : (
-                                        <div className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#141721] ${status.bg}`}></div>
+                                    <div className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#141721] ${status.bg}`}></div>
+                                    {isServerMode && serverJoined && (
+                                        <div className="absolute -bottom-0.5 -left-0.5 w-2 h-2 rounded-full bg-emerald-400 border border-[#141721]" title="Server Bot Joined"></div>
                                     )}
                                     {isActive && isLocked && <div className="absolute -bottom-1 -right-1 text-[8px] bg-amber-500 text-black px-1 rounded font-black shadow-sm">LOCK</div>}
                                 </div>
@@ -635,7 +542,7 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                                                 const isThisActive = activeChannelId === c.id;
                                                 const subStatus = getStatus(c);
                                                 const label = c.mode === 'testing' ? 'SIM' : (c.mode === 'server' ? 'SRV' : 'CLI');
-                                                const style = getChannelTypeStyle(c.mode, c.provider);
+                                                const style = getChannelModeClass(c.mode, c.provider);
                                                 
                                                 return (
                                                     <button
@@ -651,7 +558,7 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
                                         </div>
                                     )}
                                     {!isMulti && isActive && (
-                                        <div className={`mt-1 text-[8px] font-black uppercase px-1.5 py-0.5 rounded border w-fit ${getChannelTypeStyle(displayChannel.mode, displayChannel.provider)}`}>
+                                        <div className={`mt-1 text-[8px] font-black uppercase px-1.5 py-0.5 rounded border w-fit ${getChannelModeClass(displayChannel.mode, displayChannel.provider)}`}>
                                             {displayChannel.mode === 'testing' ? 'SIMULATION' : displayChannel.mode === 'server' ? 'SERVER' : 'CLIENT'}
                                         </div>
                                     )}
@@ -665,5 +572,3 @@ const ChannelTabs: React.FC<ChannelTabsProps> = ({
     </div>
   );
 };
-
-export default ChannelTabs;

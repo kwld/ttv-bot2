@@ -10,7 +10,7 @@ import { generateUUID } from './utils/helpers';
 import CommandSidebar from './components/CommandSidebar';
 import MainPanel from './components/MainPanel';
 import ChatUserTabs from './components/ChatUserTabs';
-import ChannelTabs from './components/ChannelTabs';
+import { ChannelTabs } from './components/ChannelTabs'; // Updated to named import
 import GlobalModals from './components/layout/GlobalModals';
 import PanelGrid from './components/layout/PanelGrid';
 import AiContextViewer from './components/AiContextViewer';
@@ -534,25 +534,21 @@ const App: React.FC = () => {
   const handleToggleConnection = (id: string) => {
       const ch = channels.find(c => c.id === id);
       if (!ch) return;
-      if (ch.mode === 'server') {
-          if (serverBridgeRef.current) serverBridgeRef.current.toggleBotStatus(!ch.botEnabled, ch.id);
-      } else {
-          setJoinedTwitchChannels(prev => {
-              const next = new Set(prev);
-              if (next.has(ch.name.toLowerCase())) next.delete(ch.name.toLowerCase());
-              else next.add(ch.name.toLowerCase());
-              return next;
-          });
-      }
+      
+      // Always treat as local connection toggle (Serverless-style)
+      // Server-side bot management is handled separately (Gateway)
+      setJoinedTwitchChannels(prev => {
+          const next = new Set(prev);
+          if (next.has(ch.name.toLowerCase())) next.delete(ch.name.toLowerCase());
+          else next.add(ch.name.toLowerCase());
+          return next;
+      });
   };
 
   const handleToggleLock = (id: string) => {
       setChannels(prev => prev.map(c => {
           if (c.id === id) {
               const newLock = !c.isLocked;
-              if (c.mode === 'server' && serverBridgeRef.current) {
-                  serverBridgeRef.current.send('UPDATE_CHANNEL_SETTINGS', { channelId: c.id, isLocked: newLock });
-              }
               return { ...c, isLocked: newLock };
           }
           return c;
