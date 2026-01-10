@@ -68,7 +68,25 @@ try {
         fs.mkdirSync(gatewayDest);
         fs.cpSync(GATEWAY_SRC, gatewayDest, {
             recursive: true,
-            filter: (src) => !src.includes('node_modules') && !src.includes('.env') && !src.includes('docker-data') && !src.includes('mongo-data') && !src.includes('.git')
+            filter: (src) => {
+                const rel = path.relative(GATEWAY_SRC, src);
+                // Basic exclusions
+                if (src.includes('node_modules') || src.includes('.env') || src.includes('docker-data') || src.includes('mongo-data') || src.includes('.git')) {
+                    return false;
+                }
+                
+                // Exclude Client Source (The build output is in 'public', source 'client' folder is not needed in prod)
+                if (rel.startsWith('client') || rel.startsWith('cli')) {
+                    return false;
+                }
+
+                // Exclude Dev Scripts
+                if (rel === 'create-dockerfile.js' || rel === 'create-env-example.js') {
+                    return false;
+                }
+
+                return true;
+            }
         });
 
         // Generate Dockerfile for Gateway
