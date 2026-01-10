@@ -1,5 +1,5 @@
 
-import { TwitchIRCClient } from '../twitch-gateway/server/TwitchIRC.js';
+import { TwitchIRCClient } from './TwitchIRC';
 import { User, Provider } from '../types';
 
 export interface TwitchMessage {
@@ -54,26 +54,7 @@ export interface TwitchChatClientOptions {
 }
 
 // Re-export the shared client class as TwitchChatClient for frontend compatibility
-export class TwitchChatClient extends TwitchIRCClient {
-    constructor(options: TwitchChatClientOptions) {
-        super({
-            token: options.token,
-            username: options.username,
-            channels: options.channelNames,
-            onMessage: options.onMessage,
-            onJoin: options.onJoin,
-            onPart: options.onPart,
-            onUserJoin: options.onUserJoin,
-            onUserPart: options.onUserPart,
-            onUserNotice: options.onUserNotice,
-            onClearChat: options.onClearChat,
-            onAuthFailed: options.onAuthFailed,
-            onConnected: options.onConnected,
-            onDisconnected: options.onDisconnected,
-            WebSocket: (typeof WebSocket !== 'undefined' ? WebSocket : null)
-        });
-    }
-}
+export { TwitchIRCClient as TwitchChatClient };
 
 // Helper to ensure token is just the string, without "oauth:" prefix
 const cleanToken = (token: string): string => {

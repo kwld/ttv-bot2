@@ -1,8 +1,46 @@
 
-import WebSocket from 'ws';
+export interface TwitchIRCClientOptions {
+    token: string;
+    username?: string;
+    channels?: string[];
+    WebSocket?: any;
+    onMessage?: (msg: any) => void;
+    onJoin?: (channel: string) => void;
+    onPart?: (channel: string) => void;
+    onUserJoin?: (channel: string, username: string) => void;
+    onUserPart?: (channel: string, username: string) => void;
+    onUserNotice?: (notice: any) => void;
+    onClearChat?: (channel: string, user?: string) => void;
+    onAuthFailed?: () => void;
+    onConnected?: () => void;
+    onDisconnected?: () => void;
+}
 
 export class TwitchIRCClient {
-    constructor(options) {
+    token: string;
+    username: string;
+    channels: Set<string>;
+    onMessage: (msg: any) => void;
+    onJoin: (channel: string) => void;
+    onPart: (channel: string) => void;
+    onUserJoin: (channel: string, username: string) => void;
+    onUserPart: (channel: string, username: string) => void;
+    onUserNotice: (notice: any) => void;
+    onClearChat: (channel: string, user?: string) => void;
+    onAuthFailed: () => void;
+    onConnected: () => void;
+    onDisconnected: () => void;
+    WebSocketConstructor: any;
+    ws: WebSocket | null;
+    isConnected: boolean;
+    reconnectTimer: any;
+    shouldReconnect: boolean;
+    pingTimer: any;
+    connectedRoomIds: Set<string>;
+    channelToId: Map<string, string>;
+    lastSentMessages: Map<string, { cleanText: string, modified: boolean }>;
+
+    constructor(options: TwitchIRCClientOptions) {
         this.token = options.token;
         this.username = options.username || 'gemini_bot';
         this.channels = new Set(options.channels || []);
@@ -59,16 +97,16 @@ export class TwitchIRCClient {
             this.startPing();
         };
 
-        this.ws.onmessage = (event) => {
+        this.ws.onmessage = (event: any) => {
             const data = event.data;
             const raw = data.toString().trim();
             const lines = raw.split('\r\n');
 
-            lines.forEach(line => {
+            lines.forEach((line: string) => {
                 if (!line) return;
 
                 if (line.startsWith('PING')) {
-                    this.ws.send('PONG :tmi.twitch.tv');
+                    this.ws?.send('PONG :tmi.twitch.tv');
                     return;
                 }
 
@@ -78,7 +116,7 @@ export class TwitchIRCClient {
                     this.shouldReconnect = false;
                     this.stopPing();
                     this.onAuthFailed();
-                    this.ws.close();
+                    this.ws?.close();
                     return;
                 }
 
@@ -89,7 +127,7 @@ export class TwitchIRCClient {
                     // Re-join channels stored in Set
                     // This handles the case where channels were added via join() before connection was ready
                     this.channels.forEach(ch => {
-                        this.ws.send(`JOIN #${ch}`);
+                        this.ws?.send(`JOIN #${ch}`);
                     });
                 }
 
@@ -113,7 +151,7 @@ export class TwitchIRCClient {
             }
         };
 
-        this.ws.onerror = (err) => {
+        this.ws.onerror = (err: any) => {
             console.error('[TwitchIRC] Socket Error', err.message || err);
         };
     }
@@ -149,7 +187,7 @@ export class TwitchIRCClient {
         return Array.from(this.channels);
     }
 
-    join(channelName, force = false) {
+    join(channelName: string, force = false) {
         const channel = channelName.toLowerCase().replace('#', '');
         if (!force && this.channels.has(channel)) return;
 
@@ -161,7 +199,7 @@ export class TwitchIRCClient {
         }
     }
 
-    part(channelName) {
+    part(channelName: string) {
         const channel = channelName.toLowerCase().replace('#', '');
         this.channels.delete(channel);
         
@@ -178,13 +216,11 @@ export class TwitchIRCClient {
         }
     }
 
-    say(channelName, message, options = {}) {
+    say(channelName: string, message: string, options: any = {}) {
         if (this.isConnected && this.ws && this.ws.readyState === 1) {
             const target = channelName.toLowerCase().replace('#', '');
             
             // --- SECURITY: Anti-Command Injection ---
-            // Prevent bot from executing IRC commands like /ban, /timeout, .delete
-            // We prepend a space if the message starts with control characters.
             let secureMessage = message;
             if (secureMessage.startsWith('/') || secureMessage.startsWith('.')) {
                 secureMessage = ' ' + secureMessage;
@@ -215,7 +251,7 @@ export class TwitchIRCClient {
         }
     }
 
-    parseMessage(raw) {
+    parseMessage(raw: string) {
         const parts = raw.split(' ');
         let tagsRaw = '';
         let offset = 0;
@@ -225,7 +261,7 @@ export class TwitchIRCClient {
             offset = 1;
         }
 
-        const tags = {};
+        const tags: Record<string, string> = {};
         tagsRaw.split(';').forEach(tag => {
             if (!tag) return;
             const [key, val] = tag.split('=');
@@ -260,7 +296,7 @@ export class TwitchIRCClient {
         }
         // ---------------------------------------
 
-        const badges = {};
+        const badges: Record<string, string> = {};
         if (tags['badges']) {
             tags['badges'].split(',').forEach(pair => {
                 const [key, version] = pair.split('/');
@@ -269,7 +305,7 @@ export class TwitchIRCClient {
         }
 
         if (tags['badge-info']) {
-            const badgeInfo = {};
+            const badgeInfo: Record<string, string> = {};
             tags['badge-info'].split(';').forEach(pair => {
                 if (!pair) return;
                 const [key, version] = pair.split('/');

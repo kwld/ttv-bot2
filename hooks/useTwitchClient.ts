@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState, MutableRefObject, useCallback } from 'react';
 import { TwitchChatClient, TwitchMessage, TwitchUserNotice, fetchLiveStreams } from '../services/twitchService';
 import { Channel, ActivityNotification, User, Provider } from '../types';
@@ -195,7 +194,7 @@ export const useTwitchClient = ({
         if (!isTwitchConnected || !botToken || !authUsername || !chatEnabled) return;
 
         const client = new TwitchChatClient({
-            channelNames: [], 
+            channels: [], 
             token: botToken, 
             username: authUsername, 
             onMessage: (msg: TwitchMessage) => {
@@ -217,7 +216,7 @@ export const useTwitchClient = ({
                         ...msg,
                         provider: 'twitch', 
                         channelId: resolvedChannelId, 
-                        channelName: msg.channel,
+                        channelName: msg.channel, 
                         isLive: true, 
                         fromTwitchClient: true
                     });
