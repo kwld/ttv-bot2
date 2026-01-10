@@ -268,12 +268,11 @@ app.get('/auth/login/:type', (req, res) => {
       return res.status(401).send('Unauthorized: Only admins can authenticate the bot account.');
   }
 
-  // UPDATED: Include essential functional scopes by default
+  // UPDATED: Include essential functional scopes by default, REMOVED moderator:read:followers
   const defaultStreamerScopes = [
       'user:read:email',
       'channel:read:redemptions',
       'bits:read',
-      'moderator:read:followers',
       'channel:read:subscriptions'
   ]; 
   

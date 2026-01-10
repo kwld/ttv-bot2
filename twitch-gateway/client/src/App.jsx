@@ -18,12 +18,6 @@ const SCOPE_DEFINITIONS = [
     required: true
   },
   { 
-    id: 'moderator:read:followers', 
-    label: 'Followers', 
-    description: 'Read new follower events (requires mod).',
-    required: true
-  },
-  { 
     id: 'channel:read:subscriptions', 
     label: 'Subscriptions', 
     description: 'Read subscription events.',

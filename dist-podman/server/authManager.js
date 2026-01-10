@@ -8,7 +8,7 @@ const MINIMAL_SCOPES = 'user:read:email';
 const CHAT_SCOPES = 'chat:read chat:edit clips:edit';
 
 // Scopes for Broadcaster Events (Read-only, no chat write)
-const BROADCASTER_EVENTS_SCOPES = 'channel:read:redemptions moderator:read:followers';
+const BROADCASTER_EVENTS_SCOPES = 'channel:read:redemptions';
 
 // Scopes SPECIFICALLY for the Bot Account (Admin Panel Setup)
 const BOT_SCOPES = 'chat:read chat:edit user:read:email clips:edit channel:read:redemptions moderator:read:followers user:read:chat user:bot channel:bot';
