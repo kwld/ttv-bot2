@@ -701,6 +701,7 @@ export class TwitchService {
             { type: 'stream.online', version: '1' },
             { type: 'stream.offline', version: '1' },
             { type: 'channel.raid', version: '1' },
+            // FORCED ADD: Chat & Follow for Manual Streamers (Uses Bot Permissions)
             { type: 'channel.chat.message', version: '1', requiresBot: true },
             { type: 'channel.follow', version: '2' }
         ];
