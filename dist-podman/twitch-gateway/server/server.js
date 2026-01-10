@@ -287,6 +287,8 @@ app.get('/auth/login/:type', (req, res) => {
       'user:read:email',
       'user:read:chat', 
       'user:write:chat',
+      'chat:read', // Legacy
+      'chat:edit', // Legacy
       'user:bot',
       'moderator:read:followers', // Only for Bot
       'channel:bot',               // Only for Bot

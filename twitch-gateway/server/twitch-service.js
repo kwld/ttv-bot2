@@ -41,6 +41,11 @@ export class TwitchService {
     
     this.botUserId = botToken.twitchId;
 
+    // Debug Scopes
+    if (IS_DEV) {
+        console.log(`[TwitchService] Active Bot Token Scopes: ${botToken.scope.join(', ')}`);
+    }
+
     // Simulate connection for Gateway status
     if (this.gateway) {
         this.gateway.broadcast('GATEWAY_STATUS', { ircConnected: true });
@@ -185,6 +190,7 @@ export class TwitchService {
       tokenDoc.refreshToken = res.data.refresh_token;
       tokenDoc.expiresIn = res.data.expires_in;
       tokenDoc.obtainedAt = new Date();
+      tokenDoc.scope = res.data.scope || tokenDoc.scope; // Update scope on refresh if provided
       await tokenDoc.save();
       
       // Update local memory if it's the bot
@@ -192,7 +198,7 @@ export class TwitchService {
           this.botAccessToken = tokenDoc.accessToken;
       }
 
-      if (IS_DEV) console.log(`[Auth] Refreshed token for ${tokenDoc.login}`);
+      if (IS_DEV) console.log(`[Auth] Refreshed token for ${tokenDoc.login} (Scopes: ${tokenDoc.scope?.join(',')})`);
       return tokenDoc;
     } catch (e) {
       console.error('[Auth] Failed to refresh token', e.response?.data || e.message);

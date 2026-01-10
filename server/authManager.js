@@ -11,7 +11,8 @@ const CHAT_SCOPES = 'chat:read chat:edit clips:edit';
 const BROADCASTER_EVENTS_SCOPES = 'channel:read:redemptions';
 
 // Scopes SPECIFICALLY for the Bot Account (Admin Panel Setup)
-const BOT_SCOPES = 'chat:read chat:edit user:read:email clips:edit channel:read:redemptions moderator:read:followers user:read:chat user:bot channel:bot';
+// Added user:write:chat for Helix API support
+const BOT_SCOPES = 'chat:read chat:edit user:read:email clips:edit channel:read:redemptions moderator:read:followers user:read:chat user:write:chat user:bot channel:bot';
 
 // Module-level cache for App Token
 let _appToken = null;
