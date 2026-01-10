@@ -22,12 +22,6 @@ const SCOPE_DEFINITIONS = [
     label: 'Subscriptions', 
     description: 'Read subscription events.',
     required: true
-  },
-  { 
-    id: 'moderator:read:followers', 
-    label: 'Followers', 
-    description: 'Read channel followers (Requires Mod View perms).',
-    required: true
   }
 ];
 
@@ -77,8 +71,8 @@ const AuthModal = ({ isOpen, onClose }) => {
     };
 
     const handleConnect = () => {
-        // STRICT FILTER: Remove extremely sensitive bot scopes, but ALLOW moderator:read:followers
-        const safeScopes = selectedScopes.filter(s => s !== 'channel:bot' && s !== 'user:bot');
+        // STRICT FILTER: Remove extremely sensitive bot scopes
+        const safeScopes = selectedScopes.filter(s => s !== 'channel:bot' && s !== 'user:bot' && s !== 'moderator:read:followers');
         
         localStorage.setItem('gateway_scopes', JSON.stringify(safeScopes));
         const scopeString = safeScopes.join(',');

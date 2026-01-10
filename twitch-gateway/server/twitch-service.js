@@ -583,7 +583,8 @@ export class TwitchService {
             { type: 'stream.online', version: '1' },
             { type: 'stream.offline', version: '1' },
             { type: 'channel.raid', version: '1' },
-            { type: 'channel.chat.message', version: '1', requiresBot: true }
+            { type: 'channel.chat.message', version: '1', requiresBot: true },
+            { type: 'channel.follow', version: '2' }
         ];
     } else {
         // Full list for authenticated streamers
@@ -596,7 +597,7 @@ export class TwitchService {
           { type: 'channel.channel_points_automatic_reward_redemption.add', version: '2' },
           { type: 'channel.cheer', version: '1' },
           { type: 'channel.bits.use', version: '1' },
-          { type: 'channel.follow', version: '2', requiresModerator: true },
+          { type: 'channel.follow', version: '2' },
           { type: 'channel.subscribe', version: '1' },
           { type: 'channel.subscription.end', version: '1' },
           { type: 'channel.subscription.gift', version: '1' },
@@ -609,8 +610,8 @@ export class TwitchService {
     
     // Only check scope requirements for events that are NOT bot-centric.
     // 'channel.chat.message' depends on the Bot's scope, not the Streamer's scope.
+    // 'channel.follow' v2 now relies on the Bot's scope (moderator).
     const SCOPE_REQUIREMENTS = {
-      'channel.follow': 'moderator:read:followers',
       'channel.subscribe': 'channel:read:subscriptions',
       'channel.subscription.end': 'channel:read:subscriptions',
       'channel.subscription.gift': 'channel:read:subscriptions',
@@ -629,8 +630,8 @@ export class TwitchService {
     const allSubs = await this.getAllSubscriptions(appAccessToken);
 
     for (const def of definitions) {
-        // Skip if required scopes missing on STREAMER token (unless it's a bot-only sub)
-        if (!def.requiresBot) {
+        // Skip if required scopes missing on STREAMER token (unless it's a bot-only sub like Chat or Follow)
+        if (!def.requiresBot && def.type !== 'channel.follow') {
              const requiredScope = SCOPE_REQUIREMENTS[def.type];
              // If manual, we skip scope check because manual has no scopes, but we already filtered the definitions list above
              if (!streamerToken.isManual && requiredScope && (!streamerToken.scope || !streamerToken.scope.includes(requiredScope))) {
@@ -646,19 +647,25 @@ export class TwitchService {
              condition = { to_broadcaster_user_id: streamerToken.twitchId };
         }
         
-        if (def.requiresModerator) {
-            // For manual/bot use, the moderator ID usually needs to be the BOT ID if it's a mod event
-            // But 'channel.follow' v2 requires moderator_user_id to match the token user unless using app token?
-            // Actually 'channel.follow' with App Token requires moderator_user_id to be the broadcaster themselves or a mod.
-            // If manual, we don't have a user token, so we rely on App Token. 
-            // channel.follow v2 with App Token works if moderator_user_id = broadcaster_user_id.
-            condition.moderator_user_id = streamerToken.twitchId; 
-        }
+        // --- BOT-CENTRIC LOGIC ---
+        // These events rely on the Bot's token or ID, not the Streamer's.
+        
+        let accessToken = appAccessToken;
         
         if (def.requiresBot) {
+            // Chat/Raid notification usually
             if (!botTokenDoc) continue;
-            // For chat messages, we need the user_id of the bot who has user:read:chat scope
             condition.user_id = botTokenDoc.twitchId;
+        } 
+        else if (def.type === 'channel.follow') {
+            // Follow v2 requires moderator_user_id. We use the Bot as the moderator.
+            // This assumes the bot has 'moderator:read:followers' scope and is a mod in the channel.
+            if (!botTokenDoc) {
+                if (IS_DEV) console.log(`[EventSub] Skipping ${def.type} for ${streamerToken.login}: No Bot connected.`);
+                continue;
+            }
+            condition.moderator_user_id = botTokenDoc.twitchId;
+            // Use App Access Token (standard for Webhooks) - authorized because Bot granted scope to Client ID
         }
 
         const validSub = allSubs.find(s => {
@@ -676,7 +683,8 @@ export class TwitchService {
             s.type === def.type && 
             (s.condition.broadcaster_user_id === streamerToken.twitchId || s.condition.to_broadcaster_user_id === streamerToken.twitchId) &&
             // Also check bot ID if applicable to avoid deleting other bots' subs
-            (!def.requiresBot || s.condition.user_id === botTokenDoc?.twitchId)
+            (!def.requiresBot || s.condition.user_id === botTokenDoc?.twitchId) &&
+            (def.type !== 'channel.follow' || s.condition.moderator_user_id === botTokenDoc?.twitchId)
         );
 
         for (const sub of relevantSubs) {
@@ -688,8 +696,8 @@ export class TwitchService {
         
         // Subscription Logic
         // Manual streamers ALWAYS use App Access Token because they have no User Token
-        let accessToken = appAccessToken;
-        if (!streamerToken.isManual && !def.requiresBot) {
+        // 'channel.follow' uses App Token authorized by Bot's scope.
+        if (!streamerToken.isManual && !def.requiresBot && def.type !== 'channel.follow') {
              // If we have a real user token, we could use it, but App Token is generally preferred for Webhooks where possible.
              // Sticking to App Token for consistency unless specific event demands User Token (rare for Webhooks).
         }

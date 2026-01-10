@@ -363,7 +363,7 @@ app.get('/auth/login/:type', (req, res) => {
       // STRICT FILTERING: If not 'bot', forcibly remove restricted scopes
       if (type !== 'bot') {
           scopeList = scopeList.filter(s => 
-              // s !== 'moderator:read:followers' &&  // ALLOW FOLLOWERS for Streamers
+              s !== 'moderator:read:followers' && 
               s !== 'channel:bot' && 
               s !== 'user:bot' &&
               s !== 'user:write:chat'
