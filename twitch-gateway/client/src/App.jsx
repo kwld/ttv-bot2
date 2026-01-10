@@ -594,24 +594,19 @@ const SubscriptionsTable = ({ subscriptions, streamers, userInfo }) => {
                                     </td>
                                     <td className="px-4 py-3">
                                         <div className="flex flex-wrap gap-1.5">
-                                            {group.subs.length > 0 ? group.subs.map(sub => {
-                                                const isFallbackChat = sub.type === 'channel.chat.message' && group.streamer?.isManual;
-                                                return (
+                                            {group.subs.length > 0 ? group.subs.map(sub => (
                                                 <span 
                                                     key={sub.id} 
-                                                    title={`ID: ${sub.id}\nStatus: ${sub.status}${isFallbackChat ? '\nUsing Bot Fallback Token' : ''}`}
+                                                    title={`ID: ${sub.id}\nStatus: ${sub.status}`}
                                                     className={`px-2 py-0.5 rounded text-[10px] border ${
-                                                        isFallbackChat 
-                                                            ? 'border-yellow-500 text-yellow-300 bg-yellow-900/30'
-                                                            : (sub.status === 'enabled' 
-                                                                ? 'bg-green-900/30 text-green-300 border-green-900' 
-                                                                : 'bg-red-900/30 text-red-300 border-red-900')
+                                                        sub.status === 'enabled' 
+                                                            ? 'bg-green-900/30 text-green-300 border-green-900' 
+                                                            : 'bg-red-900/30 text-red-300 border-red-900'
                                                     }`}
                                                 >
                                                     {sub.type.replace('channel.', '').replace('stream.', '')}
-                                                    {isFallbackChat && <i className="fas fa-robot ml-1 text-[8px]"></i>}
                                                 </span>
-                                            )}) : (
+                                            )) : (
                                                 <span className="text-xs text-gray-600 italic">No active subscriptions</span>
                                             )}
                                         </div>
