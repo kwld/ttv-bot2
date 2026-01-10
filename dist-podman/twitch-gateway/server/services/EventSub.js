@@ -661,16 +661,11 @@ export class EventSubService {
             }
         }
         
-        let accessToken = appAccessToken;
-        
         // --- BOT-CENTRIC LOGIC ---
         // Force using Bot User Token for specific types to avoid 403 Authorization Errors
         if (def.requiresBot) {
             if (!botTokenDoc) continue;
             condition.user_id = botTokenDoc.twitchId;
-            if (def.type === 'channel.chat.message' && botTokenDoc.accessToken) {
-                accessToken = botTokenDoc.accessToken;
-            }
         } 
         else if (def.type === 'channel.follow') {
             if (!botTokenDoc) {
@@ -678,10 +673,6 @@ export class EventSubService {
                 continue;
             }
             condition.moderator_user_id = botTokenDoc.twitchId;
-            // 'channel.follow' v2 requires moderator_user_id token with 'moderator:read:followers' scope
-            if (botTokenDoc.accessToken) {
-                accessToken = botTokenDoc.accessToken;
-            }
         }
 
         const validSub = allSubs.find(s => {
@@ -711,16 +702,84 @@ export class EventSubService {
 
         if (validSub) continue;
         
+        // Prepare subscription payload
+        const createParams = {
+            type: def.type,
+            version: def.version,
+            condition: condition,
+            transport: { method: 'webhook', callback: callbackUrl, secret: secret }
+        };
+
+        // --- DOUBLE-TRY LOGIC FOR CHAT & FOLLOW ---
+        
+        if (def.type === 'channel.chat.message') {
+             console.log(`[EventSub] 1. Attempting ${def.type} for ${streamerToken.login} with APP Token...`);
+             try {
+                 await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', createParams, {
+                    headers: {
+                        'Client-ID': process.env.TWITCH_CLIENT_ID,
+                        'Authorization': `Bearer ${appAccessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                 });
+                 console.log(`[EventSub] ✅ Subscribed to ${def.type} via APP token`);
+                 continue;
+             } catch (e) {
+                 console.warn(`[EventSub] ❌ App Token failed for ${def.type}: ${e.response?.status}`);
+                 if (e.response?.status !== 403) {
+                     console.error(`[EventSub] Details:`, e.response?.data || e.message);
+                 }
+             }
+
+             console.log(`[EventSub] 2. Fallback to BOT User Token for ${def.type}...`);
+             if (botTokenDoc && botTokenDoc.accessToken) {
+                 try {
+                     await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', createParams, {
+                        headers: {
+                            'Client-ID': process.env.TWITCH_CLIENT_ID,
+                            'Authorization': `Bearer ${botTokenDoc.accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                     });
+                     console.log(`[EventSub] ✅ Subscribed to ${def.type} via BOT token (Fallback)`);
+                 } catch (e) {
+                     console.error(`[EventSub] ❌ Failed fallback for ${def.type}: ${e.response?.status}`, e.response?.data || e.message);
+                 }
+             } else {
+                 console.warn(`[EventSub] ❌ Cannot retry with Bot Token - Bot Identity/Token missing.`);
+             }
+             continue;
+        }
+
+        if (def.type === 'channel.follow') {
+            // Channel Follow v2 requires moderator privileges, so we basically must use the Bot token if the app token fails or as default
+            // App token with moderator_user_id set to bot *might* work if bot has scopes granted to client, but safer to use bot user token directly.
+            
+             if (botTokenDoc && botTokenDoc.accessToken) {
+                 console.log(`[EventSub] Attempting ${def.type} for ${streamerToken.login} with BOT Token...`);
+                 try {
+                    await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', createParams, {
+                        headers: {
+                            'Client-ID': process.env.TWITCH_CLIENT_ID,
+                            'Authorization': `Bearer ${botTokenDoc.accessToken}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    console.log(`[EventSub] ✅ Subscribed to ${def.type} via BOT token`);
+                    continue;
+                 } catch (e) {
+                    console.error(`[EventSub] ❌ Failed ${def.type} (Bot Token): ${e.response?.status}`, e.response?.data || e.message);
+                 }
+             }
+             // If failed or no bot token, fall through to default logic (App Token) just in case
+        }
+
+        // --- STANDARD LOGIC ---
         try {
-            await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
-                type: def.type,
-                version: def.version,
-                condition: condition,
-                transport: { method: 'webhook', callback: callbackUrl, secret: secret }
-            }, {
+            await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', createParams, {
                 headers: {
                     'Client-ID': process.env.TWITCH_CLIENT_ID,
-                    'Authorization': `Bearer ${accessToken}`,
+                    'Authorization': `Bearer ${appAccessToken}`,
                     'Content-Type': 'application/json'
                 }
             });
