@@ -647,6 +647,103 @@ const ActiveConnectionsPanel = ({ status }) => {
     );
 };
 
+// --- LOGS COMPONENT ---
+const LogViewer = () => {
+    const [logs, setLogs] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [filter, setFilter] = useState('');
+
+    const fetchLogs = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch('/api/logs');
+            if (res.ok) {
+                const data = await res.json();
+                setLogs(data);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchLogs();
+        const interval = setInterval(fetchLogs, 5000); // Auto-refresh logs every 5s
+        return () => clearInterval(interval);
+    }, []);
+
+    const filteredLogs = useMemo(() => {
+        if (!filter) return logs;
+        const lowFilter = filter.toLowerCase();
+        return logs.filter(l => 
+            l.message.toLowerCase().includes(lowFilter) || 
+            l.level.toLowerCase().includes(lowFilter)
+        );
+    }, [logs, filter]);
+
+    return (
+        <div className="bg-gray-800 rounded-lg shadow-lg border border-gray-700 h-[600px] flex flex-col">
+            <div className="p-4 border-b border-gray-700 flex justify-between items-center shrink-0">
+                <h3 className="font-bold text-gray-200">System Logs (Last 1h)</h3>
+                <div className="flex gap-3">
+                    <input 
+                        value={filter}
+                        onChange={(e) => setFilter(e.target.value)}
+                        placeholder="Filter logs..."
+                        className="bg-gray-900 border border-gray-600 rounded px-3 py-1 text-sm text-white focus:outline-none focus:border-purple-500"
+                    />
+                    <button onClick={fetchLogs} className="text-sm text-purple-400 hover:text-white flex items-center gap-1">
+                        <span className={loading ? "animate-spin" : ""}>↻</span> Refresh
+                    </button>
+                </div>
+            </div>
+            <div className="flex-1 overflow-auto p-0">
+                <table className="w-full text-xs text-left text-gray-400 font-mono">
+                    <thead className="text-xs text-gray-500 uppercase bg-gray-900 sticky top-0">
+                        <tr>
+                            <th className="px-4 py-2 w-32">Time</th>
+                            <th className="px-4 py-2 w-24">Level</th>
+                            <th className="px-4 py-2">Message</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-700/50">
+                        {filteredLogs.map(log => (
+                            <tr key={log.id} className="hover:bg-gray-700/30">
+                                <td className="px-4 py-1 whitespace-nowrap text-gray-500">
+                                    {new Date(log.timestamp).toLocaleTimeString()}
+                                </td>
+                                <td className="px-4 py-1 font-bold">
+                                    <span className={`${
+                                        log.level === 'ERROR' ? 'text-red-400' : 
+                                        log.level === 'WARN' ? 'text-amber-400' : 
+                                        log.level === 'SUCCESS' ? 'text-green-400' : 'text-blue-300'
+                                    }`}>
+                                        {log.level}
+                                    </span>
+                                </td>
+                                <td className="px-4 py-1 text-gray-300 break-all">
+                                    {log.message}
+                                    {log.metadata && (
+                                        <details className="mt-1 text-[10px] text-gray-500 cursor-pointer">
+                                            <summary>Metadata</summary>
+                                            <pre>{JSON.stringify(log.metadata, null, 2)}</pre>
+                                        </details>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                        {filteredLogs.length === 0 && (
+                            <tr><td colspan="3" className="px-4 py-8 text-center italic opacity-50">No logs found.</td></tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+};
+
 const App = () => {
   const [authStatus, setAuthStatus] = useState({ 
       authenticated: false, 
@@ -655,6 +752,7 @@ const App = () => {
   });
   const [authChecked, setAuthChecked] = useState(false);
   const [currentView, setCurrentView] = useState('login');
+  const [activeTab, setActiveTab] = useState('overview'); // overview, logs
   
   const [streamers, setStreamers] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
@@ -837,6 +935,24 @@ const App = () => {
       }
   };
 
+  const handleDebugFetchSubs = async () => {
+      if (!confirm("This will fetch ALL active subscriptions directly from Twitch API (bypassing local cache). It might take a moment. Continue?")) return;
+      try {
+          const res = await fetch('/api/debug/twitch-subs');
+          if (res.ok) {
+              const data = await res.json();
+              console.log("Raw Twitch Subs:", data);
+              alert(`Fetched ${data.count} subscriptions! Check browser console for full JSON.`);
+              // Optional: You could update local state with this data to show "Ghost" subs
+          } else {
+              const err = await res.json();
+              alert('Error fetching from Twitch: ' + err.error);
+          }
+      } catch (e) {
+          alert('Failed to contact server');
+      }
+  };
+
   const getMissingScopes = (currentScopes) => {
       if (!currentScopes) return DEFAULT_SCOPES;
       return DEFAULT_SCOPES.filter(req => !currentScopes.includes(req));
@@ -855,7 +971,7 @@ const App = () => {
             {currentView === 'admin' && (
                 <div className="min-h-screen bg-gray-900 text-white p-8">
                   <div className="max-w-5xl mx-auto">
-                    <header className="mb-10 flex justify-between items-center border-b border-gray-700 pb-4">
+                    <header className="mb-6 flex justify-between items-center border-b border-gray-700 pb-4">
                       <div>
                         <h1 className="text-3xl font-bold text-purple-400">Twitch Bot Gateway</h1>
                         <p className="text-gray-400 text-sm mt-1">Manage connections and EventSub status</p>
@@ -869,116 +985,145 @@ const App = () => {
                       </div>
                     </header>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                        <section>
-                        <h2 className="text-xl font-semibold mb-4 text-gray-200">Bot Configuration</h2>
-                        <div className="bg-gray-800 rounded-lg p-6 shadow-lg border border-gray-700">
-                            {bot ? (
-                            <div className="flex flex-col gap-4">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                    <p className="font-bold text-lg">{bot.login}</p>
-                                    <p className="text-xs text-gray-500">ID: {bot.twitchId}</p>
-                                    </div>
-                                    <div className="flex gap-3">
-                                        <button onClick={deleteBot} className="px-4 py-2 bg-red-900/50 hover:bg-red-900 text-red-200 rounded text-sm transition-colors border border-red-800">
-                                            Disconnect
-                                        </button>
-                                        <a href="/auth/login/bot" className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
-                                            Re-Auth
-                                        </a>
-                                    </div>
-                                </div>
-                                <div className="border-t border-gray-700 pt-3">
-                                     <button 
-                                        onClick={resetBotSubs}
-                                        className="w-full py-1.5 bg-yellow-900/30 hover:bg-yellow-900/50 text-yellow-500 rounded text-xs font-bold uppercase border border-yellow-900/50 transition-colors"
-                                     >
-                                        <i className="fas fa-sync mr-2"></i> Reset Subs
-                                     </button>
-                                </div>
-                            </div>
-                            ) : (
-                            <div className="text-center py-6">
-                                <p className="mb-4 text-gray-400">No bot account connected.</p>
-                                <a href="/auth/login/bot" className="px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded font-medium transition-colors">
-                                Connect Bot Account
-                                </a>
-                            </div>
-                            )}
-                        </div>
-                        </section>
-                        
-                        <section>
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-xl font-semibold text-gray-200">Connected Streamers</h2>
-                                <div className="flex gap-2">
-                                    <button onClick={fetchData} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors">
-                                        Refresh
-                                    </button>
-                                    <button onClick={() => setIsManualAddOpen(true)} className="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition-colors" title="Add Manually via ID">
-                                        + Manual
-                                    </button>
-                                    <button onClick={openAddStreamer} className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-xs font-medium transition-colors">
-                                    + Auth
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 min-h-[140px] max-h-[300px] overflow-y-auto">
-                                {streamers.length === 0 ? (
-                                     <div className="text-center text-gray-500 py-8">No streamers connected.</div>
-                                ) : (
-                                    <ul className="space-y-3">
-                                        {streamers.map(s => {
-                                            const missing = getMissingScopes(s.scope);
-                                            const isManual = s.isManual;
-                                            
-                                            return (
-                                            <li key={s.twitchId} className="flex justify-between items-center bg-gray-750 p-2 rounded group">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="relative">
-                                                        <div className="w-8 h-8 bg-purple-900 rounded-full flex items-center justify-center font-bold text-xs">
-                                                        {s.avatar ? 
-                                                            <img src={s.avatar} alt={s.login} className="w-full h-full rounded-full" /> : 
-                                                            s.login.charAt(0).toUpperCase()
-                                                        }
-                                                        </div>
-                                                        {missing.length > 0 && !isManual && (
-                                                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full border border-gray-800" title="Missing Scopes"></div>
-                                                        )}
-                                                    </div>
-                                                    <div className="leading-tight">
-                                                        <div className="font-bold text-sm flex items-center gap-2">
-                                                            {s.displayName || s.login}
-                                                            {isManual ? (
-                                                                <span className="text-[9px] bg-blue-900/50 text-blue-200 px-1 rounded border border-blue-800 font-black uppercase">ADMIN - MANUAL</span>
-                                                            ) : (
-                                                                missing.length > 0 && (
-                                                                    <span className="text-[10px] bg-orange-900/50 text-orange-200 px-1 rounded border border-orange-800">New Scopes Avail</span>
-                                                                )
-                                                            )}
-                                                        </div>
-                                                        <div className="text-[10px] text-gray-500">{s.twitchId}</div>
-                                                    </div>
-                                                </div>
-                                                <div className="flex gap-2">
-                                                    {!isManual && <button onClick={() => refreshStreamerToken(s.twitchId)} className="text-blue-400 hover:text-blue-300 text-xs">Ref</button>}
-                                                    {!isManual && <button onClick={() => openAddStreamer()} className="text-green-400 hover:text-green-300 text-xs">Re-Auth</button>}
-                                                    <button onClick={() => deleteStreamer(s.twitchId)} className="text-red-400 hover:text-red-300 text-xs">Del</button>
-                                                </div>
-                                            </li>
-                                        )})}
-                                    </ul>
-                                )}
-                            </div>
-                        </section>
+                    {/* Navigation Tabs */}
+                    <div className="flex gap-4 mb-6 border-b border-gray-700">
+                        <button 
+                            onClick={() => setActiveTab('overview')}
+                            className={`pb-2 px-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'overview' ? 'border-purple-500 text-white' : 'border-transparent text-gray-400 hover:text-white'}`}
+                        >
+                            Overview
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('logs')}
+                            className={`pb-2 px-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'logs' ? 'border-purple-500 text-white' : 'border-transparent text-gray-400 hover:text-white'}`}
+                        >
+                            System Logs
+                        </button>
                     </div>
 
-                    <ActiveConnectionsPanel status={status} />
+                    {activeTab === 'overview' && (
+                        <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                            <section>
+                            <h2 className="text-xl font-semibold mb-4 text-gray-200">Bot Configuration</h2>
+                            <div className="bg-gray-800 rounded-lg p-6 shadow-lg border border-gray-700">
+                                {bot ? (
+                                <div className="flex flex-col gap-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                        <p className="font-bold text-lg">{bot.login}</p>
+                                        <p className="text-xs text-gray-500">ID: {bot.twitchId}</p>
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <button onClick={deleteBot} className="px-4 py-2 bg-red-900/50 hover:bg-red-900 text-red-200 rounded text-sm transition-colors border border-red-800">
+                                                Disconnect
+                                            </button>
+                                            <a href="/auth/login/bot" className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
+                                                Re-Auth
+                                            </a>
+                                        </div>
+                                    </div>
+                                    <div className="border-t border-gray-700 pt-3 flex gap-2">
+                                        <button 
+                                            onClick={resetBotSubs}
+                                            className="flex-1 py-1.5 bg-yellow-900/30 hover:bg-yellow-900/50 text-yellow-500 rounded text-xs font-bold uppercase border border-yellow-900/50 transition-colors"
+                                        >
+                                            <i className="fas fa-sync mr-2"></i> Reset Subs
+                                        </button>
+                                        <button 
+                                            onClick={handleDebugFetchSubs}
+                                            className="flex-1 py-1.5 bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-400 rounded text-xs font-bold uppercase border border-cyan-900/50 transition-colors"
+                                            title="Fetch actual subs from Twitch API directly (Debug)"
+                                        >
+                                            <i className="fas fa-download mr-2"></i> Fetch Live Subs
+                                        </button>
+                                    </div>
+                                </div>
+                                ) : (
+                                <div className="text-center py-6">
+                                    <p className="mb-4 text-gray-400">No bot account connected.</p>
+                                    <a href="/auth/login/bot" className="px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded font-medium transition-colors">
+                                    Connect Bot Account
+                                    </a>
+                                </div>
+                                )}
+                            </div>
+                            </section>
+                            
+                            <section>
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-xl font-semibold text-gray-200">Connected Streamers</h2>
+                                    <div className="flex gap-2">
+                                        <button onClick={fetchData} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors">
+                                            Refresh
+                                        </button>
+                                        <button onClick={() => setIsManualAddOpen(true)} className="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition-colors" title="Add Manually via ID">
+                                            + Manual
+                                        </button>
+                                        <button onClick={openAddStreamer} className="px-3 py-1 bg-purple-600 hover:bg-purple-700 rounded text-xs font-medium transition-colors">
+                                        + Auth
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 min-h-[140px] max-h-[300px] overflow-y-auto">
+                                    {streamers.length === 0 ? (
+                                        <div className="text-center text-gray-500 py-8">No streamers connected.</div>
+                                    ) : (
+                                        <ul className="space-y-3">
+                                            {streamers.map(s => {
+                                                const missing = getMissingScopes(s.scope);
+                                                const isManual = s.isManual;
+                                                
+                                                return (
+                                                <li key={s.twitchId} className="flex justify-between items-center bg-gray-750 p-2 rounded group">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="relative">
+                                                            <div className="w-8 h-8 bg-purple-900 rounded-full flex items-center justify-center font-bold text-xs">
+                                                            {s.avatar ? 
+                                                                <img src={s.avatar} alt={s.login} className="w-full h-full rounded-full" /> : 
+                                                                s.login.charAt(0).toUpperCase()
+                                                            }
+                                                            </div>
+                                                            {missing.length > 0 && !isManual && (
+                                                                <div className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full border border-gray-800" title="Missing Scopes"></div>
+                                                            )}
+                                                        </div>
+                                                        <div className="leading-tight">
+                                                            <div className="font-bold text-sm flex items-center gap-2">
+                                                                {s.displayName || s.login}
+                                                                {isManual ? (
+                                                                    <span className="text-[9px] bg-blue-900/50 text-blue-200 px-1 rounded border border-blue-800 font-black uppercase">ADMIN - MANUAL</span>
+                                                                ) : (
+                                                                    missing.length > 0 && (
+                                                                        <span className="text-[10px] bg-orange-900/50 text-orange-200 px-1 rounded border border-orange-800">New Scopes Avail</span>
+                                                                    )
+                                                                )}
+                                                            </div>
+                                                            <div className="text-[10px] text-gray-500">{s.twitchId}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-2">
+                                                        {!isManual && <button onClick={() => refreshStreamerToken(s.twitchId)} className="text-blue-400 hover:text-blue-300 text-xs">Ref</button>}
+                                                        {!isManual && <button onClick={() => openAddStreamer()} className="text-green-400 hover:text-green-300 text-xs">Re-Auth</button>}
+                                                        <button onClick={() => deleteStreamer(s.twitchId)} className="text-red-400 hover:text-red-300 text-xs">Del</button>
+                                                    </div>
+                                                </li>
+                                            )})}
+                                        </ul>
+                                    )}
+                                </div>
+                            </section>
+                        </div>
 
-                    <section className="mb-8">
-                        <SubscriptionsTable subscriptions={subscriptions} streamers={streamers} userInfo={userInfo} />
-                    </section>
+                        <ActiveConnectionsPanel status={status} />
+
+                        <section className="mb-8">
+                            <SubscriptionsTable subscriptions={subscriptions} streamers={streamers} userInfo={userInfo} />
+                        </section>
+                        </>
+                    )}
+
+                    {activeTab === 'logs' && <LogViewer />}
                   </div>
                 </div>
             )}

@@ -32,6 +32,58 @@ if (dotenvResult.error) {
   dotenv.config();
 }
 
+// --- LOGGING SYSTEM ---
+const systemLogs = [];
+const LOG_RETENTION = 60 * 60 * 1000; // 1 Hour
+
+const addSystemLog = (level, message, metadata = null) => {
+    const entry = {
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        level,
+        message,
+        metadata
+    };
+    systemLogs.unshift(entry);
+    
+    // Hard limit to prevent memory leaks if high traffic
+    if (systemLogs.length > 2000) systemLogs.length = 2000;
+};
+
+// Cleanup Interval
+setInterval(() => {
+    const now = Date.now();
+    let removed = 0;
+    for (let i = systemLogs.length - 1; i >= 0; i--) {
+        if (now - systemLogs[i].timestamp.getTime() > LOG_RETENTION) {
+            systemLogs.splice(i, 1);
+            removed++;
+        }
+    }
+    if (removed > 0 && process.env.DEV === 'true') {
+        // console.log(`[Logs] Cleaned up ${removed} old logs.`);
+    }
+}, 60000); // Check every minute
+
+// Override console methods to capture logs (optional, or just use addSystemLog explicitly)
+const originalLog = console.log;
+const originalError = console.error;
+
+if (process.env.CAPTURE_CONSOLE !== 'false') {
+    console.log = (...args) => {
+        originalLog(...args);
+        // Filter out cluttered logs if needed
+        const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+        if (!msg.includes('[Ping]')) addSystemLog('INFO', msg);
+    };
+    console.error = (...args) => {
+        originalError(...args);
+        const msg = args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ');
+        addSystemLog('ERROR', msg);
+    };
+}
+
+
 // --- Environment Validation ---
 const requiredEnvVars = ['TWITCH_CLIENT_ID', 'TWITCH_CLIENT_SECRET', 'TWITCH_WEBHOOK_SECRET', 'ADMIN_PASSWORD'];
 // Check for either BASE_URL or GATEWAY_PUBLIC_URL
@@ -145,8 +197,10 @@ app.post('/api/login', (req, res) => {
     const { password } = req.body;
     if (password === process.env.ADMIN_PASSWORD) {
         req.session.isAdmin = true;
+        addSystemLog('AUTH', 'Admin logged in.');
         return res.json({ success: true });
     }
+    addSystemLog('AUTH', 'Failed admin login attempt.');
     res.status(401).json({ error: 'Invalid password' });
 });
 
@@ -166,6 +220,28 @@ app.get('/api/check-auth', (req, res) => {
 
 // --- Protected Admin API Routes ---
 
+app.get('/api/logs', requireAuth, (req, res) => {
+    res.json(systemLogs);
+});
+
+app.get('/api/debug/twitch-subs', requireAuth, async (req, res) => {
+    try {
+        addSystemLog('DEBUG', 'Fetching raw Twitch subscriptions via API...');
+        // Reuse service logic to fetch all pages
+        const appToken = await service.getAppAccessToken();
+        const subs = await service.getAllSubscriptions(appToken);
+        
+        addSystemLog('DEBUG', `Fetched ${subs.length} active subscriptions from Twitch.`);
+        res.json({ 
+            count: subs.length, 
+            data: subs 
+        });
+    } catch (e) {
+        addSystemLog('ERROR', 'Failed to fetch raw subscriptions', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/streamers', requireAuth, async (req, res) => {
   const streamers = await Token.find({ type: 'streamer' }).select('twitchId login displayName avatar obtainedAt scope isManual');
   res.json(streamers);
@@ -178,6 +254,7 @@ app.post('/api/streamers/manual', requireAuth, async (req, res) => {
         if (!username) return res.status(400).json({ error: 'Username required' });
         
         await service.addManualStreamer(username);
+        addSystemLog('ADMIN', `Added manual streamer: ${username}`);
         res.json({ success: true });
     } catch (e) {
         console.error("Manual add error:", e);
@@ -243,6 +320,7 @@ app.get('/api/status', requireAuth, (req, res) => {
 app.post('/api/streamers/:id/refresh', requireAuth, async (req, res) => {
   try {
     await service.refreshStreamerToken(req.params.id);
+    addSystemLog('ADMIN', `Refreshed token for ID: ${req.params.id}`);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -252,6 +330,7 @@ app.post('/api/streamers/:id/refresh', requireAuth, async (req, res) => {
 app.delete('/api/streamers/:id', requireAuth, async (req, res) => {
   try {
     await service.removeStreamer(req.params.id);
+    addSystemLog('ADMIN', `Removed streamer ID: ${req.params.id}`);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -262,6 +341,7 @@ app.delete('/api/bot', requireAuth, async (req, res) => {
   try {
     await Token.deleteMany({ type: 'bot' });
     await service.disconnect();
+    addSystemLog('ADMIN', 'Removed bot account');
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -271,6 +351,7 @@ app.delete('/api/bot', requireAuth, async (req, res) => {
 app.post('/api/bot/reset-subs', requireAuth, async (req, res) => {
     try {
         await service.resetBotSubscriptions();
+        addSystemLog('ADMIN', 'Reset all bot subscriptions');
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -513,6 +594,7 @@ app.post('/webhooks/callback', (req, res) => {
 
   if (type === 'webhook_callback_verification') {
     console.log(`[EventSub] Verifying subscription: ${data.subscription.type}`);
+    addSystemLog('EVENTSUB', `Verifying: ${data.subscription.type}`);
     res.setHeader('Content-Type', 'text/plain');
     return res.send(data.challenge);
   }
@@ -529,7 +611,9 @@ app.post('/webhooks/callback', (req, res) => {
   }
   
   if (type === 'revocation') {
-      console.warn(`[EventSub] Subscription revoked: ${data.subscription.type} (Reason: ${data.subscription.status})`);
+      const reason = `[EventSub] Subscription revoked: ${data.subscription.type} (Reason: ${data.subscription.status})`;
+      console.warn(reason);
+      addSystemLog('WARNING', reason);
       return res.sendStatus(204);
   }
 
