@@ -104,23 +104,27 @@ const AuthModal = ({ isOpen, onClose }) => {
                         Select features to enable. This will redirect you to Twitch for authorization.
                     </p>
                     <div className="space-y-3 max-h-[300px] overflow-y-auto mb-6">
-                        {SCOPE_DEFINITIONS.map(scope => (
-                            <label key={scope.id} className="flex items-start gap-3 p-2 rounded hover:bg-gray-750 cursor-pointer border border-transparent hover:border-gray-700">
-                                <input 
-                                    type="checkbox" 
-                                    checked={selectedScopes.includes(scope.id)}
-                                    onChange={() => toggleScope(scope.id)}
-                                    className="mt-1 w-4 h-4 rounded border-gray-600 bg-gray-700 text-purple-600 focus:ring-purple-500 focus:ring-offset-gray-800"
-                                />
-                                <div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="font-medium text-gray-200">{scope.label}</span>
+                        {SCOPE_DEFINITIONS.map(scope => {
+                            const isFallback = scope.id === 'user:read:chat';
+                            return (
+                                <label key={scope.id} className={`flex items-start gap-3 p-2 rounded hover:bg-gray-750 cursor-pointer border ${isFallback ? 'border-yellow-500/50 bg-yellow-900/10' : 'border-transparent hover:border-gray-700'}`}>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedScopes.includes(scope.id)}
+                                        onChange={() => toggleScope(scope.id)}
+                                        className={`mt-1 w-4 h-4 rounded border-gray-600 bg-gray-700 focus:ring-offset-gray-800 ${isFallback ? 'text-yellow-500 focus:ring-yellow-500' : 'text-purple-600 focus:ring-purple-500'}`}
+                                    />
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`font-medium ${isFallback ? 'text-yellow-200' : 'text-gray-200'}`}>{scope.label}</span>
+                                            {isFallback && <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded uppercase font-bold">Fallback</span>}
+                                        </div>
+                                        <div className="text-xs text-gray-500">{scope.description}</div>
+                                        <div className="text-[10px] font-mono text-gray-600 mt-0.5">{scope.id}</div>
                                     </div>
-                                    <div className="text-xs text-gray-500">{scope.description}</div>
-                                    <div className="text-[10px] font-mono text-gray-600 mt-0.5">{scope.id}</div>
-                                </div>
-                            </label>
-                        ))}
+                                </label>
+                            );
+                        })}
                     </div>
                     <div className="flex justify-end gap-3">
                         <button onClick={onClose} className="px-4 py-2 text-gray-300 hover:text-white text-sm">Cancel</button>
@@ -290,9 +294,14 @@ const StreamerDashboard = ({ logout }) => {
                              <h3 className="text-sm font-bold text-gray-400 uppercase mb-3">Permissions & Features</h3>
                              
                              <div className="flex flex-wrap gap-1 mb-4">
-                                {grantedScopes.map(s => (
-                                    <span key={s} className="px-2 py-0.5 bg-green-900/30 text-green-300 text-[10px] rounded border border-green-900">{s.split(':')[0]}</span>
-                                ))}
+                                {grantedScopes.map(s => {
+                                    const isFallback = s === 'user:read:chat';
+                                    return (
+                                        <span key={s} className={`px-2 py-0.5 text-[10px] rounded border ${isFallback ? 'bg-yellow-900/30 text-yellow-300 border-yellow-500' : 'bg-green-900/30 text-green-300 border-green-900'}`}>
+                                            {s.split(':')[0]}
+                                        </span>
+                                    );
+                                })}
                                 {grantedScopes.length === 0 && <span className="text-xs text-gray-500 italic">Basic access only</span>}
                              </div>
                              
@@ -449,9 +458,14 @@ const ProfileHoverCard = ({ anchorRect, streamer }) => {
                     <div className="mt-2 pt-2 border-t border-gray-700">
                         <div className="text-gray-500 mb-1">Active Scopes:</div>
                         <div className="flex flex-wrap gap-1">
-                            {streamer.scope.map(s => (
-                                <span key={s} className="px-1.5 py-0.5 bg-gray-800 rounded text-[10px] text-gray-400 border border-gray-700">{s.split(':')[0]}:{s.split(':')[2] || s.split(':')[1]}</span>
-                            ))}
+                            {streamer.scope.map(s => {
+                                const isFallback = s === 'user:read:chat';
+                                return (
+                                    <span key={s} className={`px-1.5 py-0.5 rounded text-[10px] border ${isFallback ? 'bg-yellow-900/20 text-yellow-400 border-yellow-600' : 'bg-gray-800 text-gray-400 border-gray-700'}`}>
+                                        {s.split(':')[0]}:{s.split(':')[2] || s.split(':')[1]}
+                                    </span>
+                                );
+                            })}
                         </div>
                     </div>
                     )}
