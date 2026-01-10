@@ -336,7 +336,8 @@ app.get('/auth/login/:type', (req, res) => {
       'user:read:email',
       'channel:read:redemptions',
       'bits:read',
-      'channel:read:subscriptions'
+      'channel:read:subscriptions',
+      'channel:bot' // Ensure Streamer authorizes the bot to join chat
   ]; 
   
   const defaultBotScopes = [
@@ -360,11 +361,11 @@ app.get('/auth/login/:type', (req, res) => {
   if (customScopes && type !== 'bot') {
       scopeList = customScopes.split(',').filter(Boolean);
       
-      // STRICT FILTERING: If not 'bot', forcibly remove restricted scopes
+      // STRICT FILTER: If not 'bot', forcibly remove restricted scopes
       if (type !== 'bot') {
           scopeList = scopeList.filter(s => 
               s !== 'moderator:read:followers' && 
-              s !== 'channel:bot' && 
+              // s !== 'channel:bot' && // ALLOW channel:bot
               s !== 'user:bot' &&
               s !== 'user:write:chat'
           );

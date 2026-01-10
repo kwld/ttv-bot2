@@ -22,6 +22,12 @@ const SCOPE_DEFINITIONS = [
     label: 'Subscriptions', 
     description: 'Read subscription events.',
     required: true
+  },
+  {
+    id: 'channel:bot',
+    label: 'Chat Bot Access',
+    description: 'Allows the bot to join chat and read messages without being a moderator.',
+    required: true
   }
 ];
 
@@ -72,7 +78,8 @@ const AuthModal = ({ isOpen, onClose }) => {
 
     const handleConnect = () => {
         // STRICT FILTER: Remove extremely sensitive bot scopes
-        const safeScopes = selectedScopes.filter(s => s !== 'channel:bot' && s !== 'user:bot' && s !== 'moderator:read:followers');
+        // Allowed: channel:bot (for streamers to grant bot access)
+        const safeScopes = selectedScopes.filter(s => s !== 'user:bot' && s !== 'moderator:read:followers');
         
         localStorage.setItem('gateway_scopes', JSON.stringify(safeScopes));
         const scopeString = safeScopes.join(',');
@@ -363,7 +370,6 @@ const StreamerDashboard = ({ logout }) => {
     );
 };
 
-// ... existing code for ProfileHoverCard, SubscriptionsTable, ActiveConnectionsPanel, App ...
 const ProfileHoverCard = ({ anchorRect, streamer }) => {
     const elRef = useRef(null);
     const [style, setStyle] = useState({ opacity: 0 });
