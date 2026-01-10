@@ -40,8 +40,6 @@ export class EventSubService {
         
         if (type === 'user.authorization.grant') {
              console.log(`[EventSub] Authorization GRANTED by user ${event.user_name} (${event.user_id})`);
-             // This is mostly informational as the OAuth flow handles creation.
-             // But we could use it to trigger a welcome flow or sync.
              return;
         }
 
@@ -49,9 +47,7 @@ export class EventSubService {
              const revokedUserId = event.user_id;
              console.warn(`[EventSub] Authorization REVOKED by user ${event.user_name} (${revokedUserId})`);
              
-             // Cleanup Token
              try {
-                 // 1. Remove from DB
                  await Token.deleteOne({ twitchId: revokedUserId });
              } catch(e) {
                  console.error("Error handling revoke:", e);
@@ -190,16 +186,12 @@ export class EventSubService {
             }
         };
         
-        // --- DIRECT SUBSCRIPTION TRIGGERS ---
+        // --- EVENT HANDLERS ---
         
         if (type === 'channel.subscribe') {
             await runCommand(['On Subscription'], ['1'], {
                 isSubscription: true,
-                sub: {
-                    tier: event.tier,
-                    isGift: event.is_gift,
-                    months: 1
-                }
+                sub: { tier: event.tier, isGift: event.is_gift, months: 1 }
             });
         }
 
@@ -219,19 +211,12 @@ export class EventSubService {
         if (type === 'channel.subscription.gift') {
             await runCommand(['On Subscription'], [String(event.total)], {
                 isSubscription: true,
-                sub: {
-                    tier: event.tier,
-                    isGift: true,
-                    months: event.cumulative_total, // Total gifts given by user
-                    giftCount: event.total // Gifts in this batch
-                }
+                sub: { tier: event.tier, isGift: true, months: event.cumulative_total, giftCount: event.total }
             });
         }
 
-        // --- CHANNEL RAID ---
         if (type === 'channel.raid') {
             const viewers = event.viewers;
-            
             broadcastToUser(broadcasterId, { 
                 type: 'CHAT_MESSAGE', 
                 payload: {
@@ -250,14 +235,10 @@ export class EventSubService {
             
             await runCommand(['On Raid'], [String(viewers)], {
                 isRaid: true,
-                raid: {
-                    viewerCount: viewers,
-                    raiderName: event.from_broadcaster_user_name
-                }
+                raid: { viewerCount: viewers, raiderName: event.from_broadcaster_user_name }
             });
         }
 
-        // --- CUSTOM REWARD REDEMPTION ---
         if (type === 'channel.channel_points_custom_reward_redemption.add') {
             const rewardTitle = event.reward.title;
             const rewardTitleLower = rewardTitle.toLowerCase();
@@ -277,11 +258,7 @@ export class EventSubService {
                     user: user,
                     timestamp: Date.now(),
                     isLive: true,
-                    redemption: {
-                        id: event.reward.id,
-                        title: rewardTitle,
-                        cost: cost
-                    }
+                    redemption: { id: event.reward.id, title: rewardTitle, cost: cost }
                 } 
             });
 
@@ -289,21 +266,12 @@ export class EventSubService {
             const matchingCommands = channelCommands.filter(c => {
                 const triggers = (c.rootAction.settings.triggers || '').split(',').map(t => t.trim().toLowerCase());
                 const events = c.rootAction.settings.eventTriggers || [];
-                
-                const titleMatch = triggers.includes(rewardTitleLower) || triggers.includes(`!${rewardTitleLower}`);
-                const eventMatch = events.includes('On Reward Redemption');
-                
-                return titleMatch || eventMatch;
+                return triggers.includes(rewardTitleLower) || triggers.includes(`!${rewardTitleLower}`) || events.includes('On Reward Redemption');
             });
 
             const eventData = { 
                 isReward: true,
-                reward: {
-                    id: event.reward.id,
-                    title: rewardTitle,
-                    cost: cost,
-                    prompt: event.reward.prompt
-                },
+                reward: { id: event.reward.id, title: rewardTitle, cost: cost, prompt: event.reward.prompt },
                 userInput: userInput,
                 status: event.status,
                 redeemedAt: event.redeemed_at
@@ -326,45 +294,25 @@ export class EventSubService {
             }
         }
         
-        // --- AUTOMATIC REWARD REDEMPTION ---
         if (type === 'channel.channel_points_automatic_reward_redemption.add') {
             const rewardType = event.reward.type; 
             const cost = event.reward.cost || 0;
             const text = event.message?.text || '';
             
-            let logText = `✨ Reward: ${rewardType} (${cost})`;
-            if (rewardType === 'send_highlighted_message') {
-                logText = `🌟 Highlighted Message (${cost}): ${text}`;
-            } else if (text) {
-                logText += ` - ${text}`;
-            }
-
             broadcastToUser(broadcasterId, { 
                 type: 'LOG', 
-                payload: { 
-                    level: 'success', 
-                    message: `${user.displayName}: ${logText}`
-                } 
+                payload: { level: 'success', message: `${user.displayName}: ${rewardType} (${cost})` } 
             });
 
             const eventData = {
                 isAutoReward: true,
-                reward: {
-                    type: rewardType,
-                    cost: cost,
-                    emote: event.reward.unlocked_emote
-                },
-                message: {
-                    text: text,
-                    emotes: event.message?.emotes
-                },
+                reward: { type: rewardType, cost: cost, emote: event.reward.unlocked_emote },
+                message: { text: text, emotes: event.message?.emotes },
                 redeemedAt: event.redeemed_at
             };
-
             await runCommand(['On Reward Redemption'], [text], eventData);
         }
 
-        // --- FOLLOW ---
         if (type === 'channel.follow') {
             if (SHOULD_LOG) console.log(`[Gateway] [Follow] ${user.displayName} followed ${broadcasterName}`);
             await runCommand(['On Follow'], [], { 
@@ -373,7 +321,6 @@ export class EventSubService {
             });
         }
 
-        // --- CHAT NOTIFICATION (SUB, RAID, ETC) ---
         if (type === 'channel.chat.notification') {
             const noticeType = event.notice_type;
             const systemMsg = event.system_message;
@@ -409,57 +356,33 @@ export class EventSubService {
                 if (event.raid) {
                     args.push(String(event.raid.viewer_count));
                     evtData.isRaid = true;
-                    evtData.raid = {
-                        viewerCount: event.raid.viewer_count,
-                        profileImage: event.raid.profile_image_url
-                    };
+                    evtData.raid = { viewerCount: event.raid.viewer_count, profileImage: event.raid.profile_image_url };
                 }
                 
                 if (event.resub) {
                     args.push(String(event.resub.cumulative_months));
                     evtData.isSubscription = true;
-                    evtData.sub = {
-                        tier: event.sub?.sub_tier,
-                        isPrime: event.sub?.is_prime,
-                        months: event.resub.cumulative_months,
-                        streak: event.resub.streak_months,
-                        isGift: false
-                    };
+                    evtData.sub = { tier: event.sub?.sub_tier, isPrime: event.sub?.is_prime, months: event.resub.cumulative_months, streak: event.resub.streak_months, isGift: false };
                 } else if (event.sub) {
                     evtData.isSubscription = true;
-                    evtData.sub = {
-                        tier: event.sub.sub_tier,
-                        isPrime: event.sub.is_prime,
-                        months: 1,
-                        isGift: false
-                    };
+                    evtData.sub = { tier: event.sub.sub_tier, isPrime: event.sub.is_prime, months: 1, isGift: false };
                 }
 
                 if (event.sub_gift) {
                     args.push(String(event.sub_gift.cumulative_total));
                     evtData.isSubscription = true;
-                    evtData.sub = {
-                        tier: event.sub_gift.sub_tier,
-                        months: event.sub_gift.duration_months,
-                        isGift: true,
-                        recipientId: event.sub_gift.recipient_user_id,
-                        recipientName: event.sub_gift.recipient_user_name
-                    };
+                    evtData.sub = { tier: event.sub_gift.sub_tier, months: event.sub_gift.duration_months, isGift: true, recipientId: event.sub_gift.recipient_user_id, recipientName: event.sub_gift.recipient_user_name };
                 }
 
                 await runCommand([eventName], args, evtData);
             }
         }
 
-        // --- CHANNEL UPDATE ---
         if (type === 'channel.update') {
             const { title, category_name, language, is_mature } = event;
             broadcastToUser(broadcasterId, { 
                 type: 'LOG', 
-                payload: { 
-                    level: 'info', 
-                    message: `Channel Update: ${title} [${category_name}]`
-                } 
+                payload: { level: 'info', message: `Channel Update: ${title} [${category_name}]` } 
             });
 
             await runCommand(['On Channel Update'], [title, category_name], { 
@@ -471,7 +394,6 @@ export class EventSubService {
             });
         }
 
-        // --- BITS / CHEER ---
         if (type === 'channel.cheer') {
              await runCommand(['On Cheer'], [String(event.bits), event.message], {
                  isCheer: true,
@@ -503,7 +425,6 @@ export class EventSubService {
 
           for (const def of definitions) {
               const condition = { client_id: clientId };
-              
               const validSub = allSubs.find(s => {
                   if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
                   if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
@@ -516,11 +437,7 @@ export class EventSubService {
                   type: def.type,
                   version: def.version,
                   condition: condition,
-                  transport: {
-                      method: 'webhook',
-                      callback: callbackUrl,
-                      secret: secret
-                  }
+                  transport: { method: 'webhook', callback: callbackUrl, secret: secret }
               }, {
                   headers: {
                       'Client-ID': clientId,
@@ -546,7 +463,7 @@ export class EventSubService {
         { type: 'channel.raid', version: '1' }
       ];
 
-      // Retrieve Bot ID for Chat Subscription (Automatically include chat for everyone)
+      // Retrieve Bot ID for Chat Subscription
       let botTokenDoc = await Token.findOne({ type: 'bot' });
       
       // Ensure Bot token is fresh before use
@@ -555,7 +472,6 @@ export class EventSubService {
       }
 
       if (botTokenDoc) {
-          // Add Chat Subscription if we have a bot to listen
           definitions.push({ type: 'channel.chat.message', version: '1', requiresBot: true });
       }
 
@@ -570,7 +486,6 @@ export class EventSubService {
           for (const def of definitions) {
               let condition = { broadcaster_user_id: channelId };
               
-              // Handle special condition for Raids
               if (def.type === 'channel.raid') {
                   condition = { to_broadcaster_user_id: channelId };
               }
@@ -580,12 +495,10 @@ export class EventSubService {
                   condition.user_id = botTokenDoc.twitchId;
               }
 
-              // Check if already subscribed correctly
               const validSub = allSubs.find(s => {
                   if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
                   if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
                   
-                  // Check condition matching
                   const sCond = s.condition;
                   const keysA = Object.keys(condition);
                   const keysB = Object.keys(sCond);
@@ -593,58 +506,32 @@ export class EventSubService {
                   return keysA.every(key => String(condition[key]) === String(sCond[key]));
               });
 
-              if (validSub) continue; // Already exists
+              if (validSub) continue;
 
-              // Create Subscription
+              // Use Bot User Token for chat messages to avoid 403 authorization error
+              // even for "Public" setup if we have a bot context
+              let accessToken = appAccessToken;
+              if (def.type === 'channel.chat.message' && botTokenDoc && botTokenDoc.accessToken) {
+                  accessToken = botTokenDoc.accessToken;
+              }
+
               try {
                 await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
                     type: def.type,
                     version: def.version,
                     condition: condition,
-                    transport: {
-                        method: 'webhook',
-                        callback: callbackUrl,
-                        secret: secret
-                    }
+                    transport: { method: 'webhook', callback: callbackUrl, secret: secret }
                 }, {
                     headers: {
                         'Client-ID': process.env.TWITCH_CLIENT_ID,
-                        'Authorization': `Bearer ${appAccessToken}`,
+                        'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     }
                 });
                 if (SHOULD_LOG) console.log(`[EventSub] Subscribed to ${def.type} for ${channelId} (Public)`);
               } catch (subErr) {
-                 // --- FALLBACK LOGIC FOR PUBLIC CHAT SUB ---
-                 if (def.type === 'channel.chat.message' && botTokenDoc && botTokenDoc.accessToken) {
-                    if (subErr.response?.status === 403 || subErr.response?.status === 401 || subErr.response?.status === 400) {
-                        if (SHOULD_LOG) console.log(`[EventSub] Standard auth failed for Public ${def.type}. Retrying with Bot User Token...`);
-                        try {
-                            await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
-                                type: def.type,
-                                version: def.version,
-                                condition: condition,
-                                transport: {
-                                    method: 'webhook',
-                                    callback: callbackUrl,
-                                    secret: secret
-                                }
-                            }, {
-                                headers: {
-                                    'Client-ID': process.env.TWITCH_CLIENT_ID,
-                                    'Authorization': `Bearer ${botTokenDoc.accessToken}`,
-                                    'Content-Type': 'application/json'
-                                }
-                            });
-                            console.log(`[EventSub] Fallback subscription successful for ${def.type} (Public)`);
-                        } catch (fbError) {
-                            if (fbError.response?.status !== 409) {
-                                console.error(`[EventSub] Fallback failed for Public ${def.type}:`, fbError.response?.data || fbError.message);
-                            }
-                        }
-                    }
-                 } else if (subErr.response?.status !== 409) {
-                    console.error(`[EventSub] Failed to setup public subs for ${channelId}`, subErr.response?.data || subErr.message);
+                 if (subErr.response?.status !== 409) {
+                    console.error(`[EventSub] Failed to setup public subs for ${channelId}: ${def.type}`, subErr.response?.data || subErr.message);
                  }
               }
           }
@@ -669,17 +556,14 @@ export class EventSubService {
 
     // Filter events based on manual vs authenticated streamer
     if (streamerToken.isManual) {
-        // Manual streamers only get public events + chat (via bot)
         definitions = [
             { type: 'stream.online', version: '1' },
             { type: 'stream.offline', version: '1' },
             { type: 'channel.raid', version: '1' },
-            // FORCED ADD: Chat & Follow for Manual Streamers (Uses Bot Permissions)
             { type: 'channel.chat.message', version: '1', requiresBot: true },
             { type: 'channel.follow', version: '2' }
         ];
     } else {
-        // Full list for authenticated streamers
         definitions = [
           { type: 'stream.online', version: '1' },
           { type: 'stream.offline', version: '1' },
@@ -697,7 +581,7 @@ export class EventSubService {
           { type: 'channel.shared_chat.begin', version: '1' },
           { type: 'channel.shared_chat.update', version: '1' },
           { type: 'channel.shared_chat.end', version: '1' },
-          { type: 'user.update', version: '1' } // User Updates (Name/Desc)
+          { type: 'user.update', version: '1' }
         ];
     }
     
@@ -720,10 +604,8 @@ export class EventSubService {
     const allSubs = await this.getAllSubscriptions(appAccessToken);
 
     for (const def of definitions) {
-        // Skip if required scopes missing on STREAMER token (unless it's a bot-only sub like Chat or Follow)
         if (!def.requiresBot && def.type !== 'channel.follow') {
              const requiredScope = SCOPE_REQUIREMENTS[def.type];
-             // If manual, we skip scope check because manual has no scopes
              if (!streamerToken.isManual && requiredScope && (!streamerToken.scope || !streamerToken.scope.includes(requiredScope))) {
                  if (SHOULD_LOG) console.log(`[EventSub] Skipping ${def.type} for ${streamerToken.login}: Missing scope ${requiredScope}`);
                  continue; 
@@ -736,21 +618,21 @@ export class EventSubService {
             condition = { user_id: streamerToken.twitchId };
         } else {
             condition = { broadcaster_user_id: streamerToken.twitchId };
-             // Handle special condition for Raids
             if (def.type === 'channel.raid') {
                  condition = { to_broadcaster_user_id: streamerToken.twitchId };
             }
         }
         
-        // --- BOT-CENTRIC LOGIC ---
-        // These events rely on the Bot's token or ID, not the Streamer's.
-        
         let accessToken = appAccessToken;
         
+        // --- BOT-CENTRIC LOGIC ---
+        // Force using Bot User Token for specific types to avoid 403 Authorization Errors
         if (def.requiresBot) {
-            // Chat/Raid notification usually
             if (!botTokenDoc) continue;
             condition.user_id = botTokenDoc.twitchId;
+            if (def.type === 'channel.chat.message' && botTokenDoc.accessToken) {
+                accessToken = botTokenDoc.accessToken;
+            }
         } 
         else if (def.type === 'channel.follow') {
             if (!botTokenDoc) {
@@ -758,13 +640,16 @@ export class EventSubService {
                 continue;
             }
             condition.moderator_user_id = botTokenDoc.twitchId;
+            // 'channel.follow' v2 requires moderator_user_id token with 'moderator:read:followers' scope
+            if (botTokenDoc.accessToken) {
+                accessToken = botTokenDoc.accessToken;
+            }
         }
 
         const validSub = allSubs.find(s => {
             if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
             if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
             
-            // Check condition matching
             const sCond = s.condition;
             const keysA = Object.keys(condition);
             const keysB = Object.keys(sCond);
@@ -772,7 +657,6 @@ export class EventSubService {
             return keysA.every(key => String(condition[key]) === String(sCond[key]));
         });
 
-        // Cleanup duplicates
         const relevantSubs = allSubs.filter(s => 
             s.type === def.type && 
             (s.condition.user_id === streamerToken.twitchId || 
@@ -791,57 +675,20 @@ export class EventSubService {
         
         try {
             await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
-            type: def.type,
-            version: def.version,
-            condition: condition,
-            transport: {
-                method: 'webhook',
-                callback: callbackUrl,
-                secret: secret
-            }
+                type: def.type,
+                version: def.version,
+                condition: condition,
+                transport: { method: 'webhook', callback: callbackUrl, secret: secret }
             }, {
-            headers: {
-                'Client-ID': process.env.TWITCH_CLIENT_ID,
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            }
+                headers: {
+                    'Client-ID': process.env.TWITCH_CLIENT_ID,
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
             });
             console.log(`[EventSub] Subscribed to ${def.type} for ${streamerToken.login}`);
         } catch (e) {
-            let handled = false;
-
-            // Fallback: Use Bot User Token for Chat if App Token fails (Missing channel:bot scope or Mod status)
-            if (def.type === 'channel.chat.message' && botTokenDoc && botTokenDoc.accessToken) {
-                // Only retry if the error suggests permission issues (403) or generic 400
-                if (e.response?.status === 403 || e.response?.status === 401 || e.response?.status === 400) {
-                     if (SHOULD_LOG) console.log(`[EventSub] Standard auth failed for ${def.type}. Retrying with Bot User Token...`);
-                     try {
-                         await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
-                            type: def.type,
-                            version: def.version,
-                            condition: condition,
-                            transport: {
-                                method: 'webhook',
-                                callback: callbackUrl,
-                                secret: secret
-                            }
-                        }, {
-                            headers: {
-                                'Client-ID': process.env.TWITCH_CLIENT_ID,
-                                'Authorization': `Bearer ${botTokenDoc.accessToken}`,
-                                'Content-Type': 'application/json'
-                            }
-                        });
-                        console.log(`[EventSub] Fallback subscription successful for ${def.type}`);
-                        handled = true;
-                     } catch (fbError) {
-                         if (fbError.response?.status === 409) handled = true; // Exists
-                         else console.error(`[EventSub] Fallback failed for ${def.type}:`, fbError.response?.data || fbError.message);
-                     }
-                }
-            }
-
-            if (!handled && e.response?.status !== 409) {
+            if (e.response?.status !== 409) {
                 console.error(`[EventSub] Failed to subscribe ${def.type} for ${streamerToken.login}`, e.response?.data);
             }
         }
