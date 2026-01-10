@@ -459,7 +459,8 @@ const SubscriptionsTable = ({ subscriptions, streamers, userInfo }) => {
         const groups = {};
         
         subscriptions.forEach(sub => {
-            const userId = sub.condition.broadcaster_user_id || 'app';
+            // Updated to support raids which use 'to_broadcaster_user_id'
+            const userId = sub.condition.broadcaster_user_id || sub.condition.to_broadcaster_user_id || sub.condition.user_id || 'app';
             if (!groups[userId]) {
                 let streamerData = streamers.find(s => s.twitchId === userId);
                 
@@ -796,6 +797,21 @@ const App = () => {
     }
   };
 
+  const resetBotSubs = async () => {
+      if(!confirm('Are you sure you want to reset all bot-related subscriptions? This deletes and recreates them.')) return;
+      try {
+          const res = await fetch('/api/bot/reset-subs', { method: 'POST' });
+          if(res.ok) {
+              alert('Subscriptions reset!');
+              fetchData();
+          } else {
+              alert('Failed to reset subscriptions.');
+          }
+      } catch (e) {
+          alert('Network Error');
+      }
+  };
+
   const openAddStreamer = () => {
       setAuthModalOpen(true);
   };
@@ -857,18 +873,28 @@ const App = () => {
                         <h2 className="text-xl font-semibold mb-4 text-gray-200">Bot Configuration</h2>
                         <div className="bg-gray-800 rounded-lg p-6 shadow-lg border border-gray-700">
                             {bot ? (
-                            <div className="flex items-center justify-between">
-                                <div>
-                                <p className="font-bold text-lg">{bot.login}</p>
-                                <p className="text-xs text-gray-500">ID: {bot.twitchId}</p>
+                            <div className="flex flex-col gap-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                    <p className="font-bold text-lg">{bot.login}</p>
+                                    <p className="text-xs text-gray-500">ID: {bot.twitchId}</p>
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <button onClick={deleteBot} className="px-4 py-2 bg-red-900/50 hover:bg-red-900 text-red-200 rounded text-sm transition-colors border border-red-800">
+                                            Disconnect
+                                        </button>
+                                        <a href="/auth/login/bot" className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
+                                            Re-Auth
+                                        </a>
+                                    </div>
                                 </div>
-                                <div className="flex gap-3">
-                                    <button onClick={deleteBot} className="px-4 py-2 bg-red-900/50 hover:bg-red-900 text-red-200 rounded text-sm transition-colors border border-red-800">
-                                        Disconnect
-                                    </button>
-                                    <a href="/auth/login/bot" className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors">
-                                        Re-Auth
-                                    </a>
+                                <div className="border-t border-gray-700 pt-3">
+                                     <button 
+                                        onClick={resetBotSubs}
+                                        className="w-full py-1.5 bg-yellow-900/30 hover:bg-yellow-900/50 text-yellow-500 rounded text-xs font-bold uppercase border border-yellow-900/50 transition-colors"
+                                     >
+                                        <i className="fas fa-sync mr-2"></i> Reset Subs
+                                     </button>
                                 </div>
                             </div>
                             ) : (

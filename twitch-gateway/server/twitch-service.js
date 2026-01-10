@@ -457,6 +457,25 @@ export class TwitchService {
       console.error('[EventSub] Startup cleanup failed:', e.message);
     }
   }
+  
+  async resetBotSubscriptions() {
+      console.log('[EventSub] Resetting all subscriptions...');
+      try {
+          const appToken = await this.getAppAccessToken();
+          const allSubs = await this.getAllSubscriptions(appToken);
+          
+          for (const sub of allSubs) {
+              await this.deleteSubscription(sub.id, appToken);
+          }
+          console.log('[EventSub] Deleted all subscriptions. Re-syncing...');
+          
+          await this.syncAllStreamers();
+          
+      } catch (e) {
+          console.error('[EventSub] Reset failed:', e);
+          throw e;
+      }
+  }
 
   // Set up Public Events (No Auth Required) for a specific Channel ID
   async setupPublicEventSub(channelId) {

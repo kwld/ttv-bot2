@@ -299,6 +299,21 @@ Below are the structures of the `event` object for the supported subscription ty
 }
 ```
 
+#### 13. Channel Raid
+**Type**: `channel.raid` (v1)
+
+```json
+{
+    "from_broadcaster_user_id": "1234",
+    "from_broadcaster_user_login": "cool_user",
+    "from_broadcaster_user_name": "Cool_User",
+    "to_broadcaster_user_id": "1337",
+    "to_broadcaster_user_login": "cooler_user",
+    "to_broadcaster_user_name": "Cooler_User",
+    "viewers": 9001
+}
+```
+
 ### Outgoing Commands (App -> Gateway)
 
 Send JSON string to Gateway to perform actions.

@@ -26,6 +26,11 @@ export class EventSubService {
         const broadcasterId = event.broadcaster_user_id || event.to_broadcaster_user_id;
         const broadcasterName = event.broadcaster_user_name || event.broadcaster_user_login || event.to_broadcaster_user_name;
 
+        // --- CONSOLE LOG INFO ---
+        if (IS_DEV) {
+            console.log(`[EventSub] 📨 Incoming: ${type} -> ${broadcasterName || 'Unknown'}`);
+        }
+
         if (!broadcasterId) {
             return;
         }
@@ -120,6 +125,7 @@ export class EventSubService {
             });
 
             if (cmd) {
+                if (IS_DEV) console.log(`[EventSub] Triggering command '${cmd.name}' for event(s): ${triggerEvents.join(', ')}`);
                 try {
                     const execId = crypto.randomUUID();
                     await executor.run(cmd, user, {}, args, {
@@ -135,6 +141,45 @@ export class EventSubService {
             }
         };
         
+        // --- DIRECT SUBSCRIPTION TRIGGERS ---
+        // These ensure flows run even if the chat notification is delayed/missing
+        
+        if (type === 'channel.subscribe') {
+            await runCommand(['On Subscription'], ['1'], {
+                isSubscription: true,
+                sub: {
+                    tier: event.tier,
+                    isGift: event.is_gift,
+                    months: 1
+                }
+            });
+        }
+
+        if (type === 'channel.subscription.message') {
+            await runCommand(['On Subscription'], [String(event.cumulative_months)], {
+                isSubscription: true,
+                sub: {
+                    tier: event.tier,
+                    isGift: false,
+                    months: event.cumulative_months,
+                    streak: event.streak_months,
+                    message: event.message?.text
+                }
+            });
+        }
+        
+        if (type === 'channel.subscription.gift') {
+            await runCommand(['On Subscription'], [String(event.total)], {
+                isSubscription: true,
+                sub: {
+                    tier: event.tier,
+                    isGift: true,
+                    months: event.cumulative_total, // Total gifts given by user
+                    giftCount: event.total // Gifts in this batch
+                }
+            });
+        }
+
         // --- CHANNEL RAID ---
         if (type === 'channel.raid') {
             const viewers = event.viewers;
@@ -301,14 +346,16 @@ export class EventSubService {
                 } 
             });
 
+            // Note: Subscription/Raid triggers are usually handled by explicit events above,
+            // but we keep this as a fallback for the specific chat visualization triggers or older API versions
             const triggerMap = {
-                'sub': 'On Subscription',
-                'resub': 'On Subscription',
-                'sub_gift': 'On Subscription',
-                'community_sub_gift': 'On Subscription',
+                // 'sub': 'On Subscription', // Handled by channel.subscribe
+                // 'resub': 'On Subscription', // Handled by channel.subscription.message
+                // 'sub_gift': 'On Subscription', // Handled by channel.subscription.gift
+                // 'raid': 'On Raid', // Handled by channel.raid
+                'community_sub_gift': 'On Subscription', // Still useful if no specific event
                 'gift_paid_upgrade': 'On Subscription',
                 'prime_paid_upgrade': 'On Subscription',
-                'raid': 'On Raid', // NOTE: 'channel.raid' is preferred, but we keep this for chat visual trigger
                 'unraid': 'On Raid'
             };
 

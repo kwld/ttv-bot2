@@ -268,6 +268,15 @@ app.delete('/api/bot', requireAuth, async (req, res) => {
   }
 });
 
+app.post('/api/bot/reset-subs', requireAuth, async (req, res) => {
+    try {
+        await service.resetBotSubscriptions();
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // --- Protected Streamer API Routes (Self Management) ---
 
 app.get('/api/me', requireStreamer, async (req, res) => {
