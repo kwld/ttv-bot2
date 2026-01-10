@@ -465,7 +465,8 @@ export class TwitchService {
 
       const definitions = [
         { type: 'stream.online', version: '1' },
-        { type: 'stream.offline', version: '1' }
+        { type: 'stream.offline', version: '1' },
+        { type: 'channel.raid', version: '1' }
       ];
 
       // Retrieve Bot ID for Chat Subscription (Automatically include chat for everyone)
@@ -484,7 +485,12 @@ export class TwitchService {
           const allSubs = await this.getAllSubscriptions(appAccessToken);
 
           for (const def of definitions) {
-              const condition = { broadcaster_user_id: channelId };
+              let condition = { broadcaster_user_id: channelId };
+              
+              // Handle special condition for Raids
+              if (def.type === 'channel.raid') {
+                  condition = { to_broadcaster_user_id: channelId };
+              }
 
               if (def.requiresBot) {
                   if (!botTokenDoc) continue;
@@ -555,6 +561,7 @@ export class TwitchService {
         definitions = [
             { type: 'stream.online', version: '1' },
             { type: 'stream.offline', version: '1' },
+            { type: 'channel.raid', version: '1' },
             { type: 'channel.chat.message', version: '1', requiresBot: true }
         ];
     } else {
@@ -562,6 +569,7 @@ export class TwitchService {
         definitions = [
           { type: 'stream.online', version: '1' },
           { type: 'stream.offline', version: '1' },
+          { type: 'channel.raid', version: '1' },
           { type: 'channel.chat.message', version: '1', requiresBot: true },
           { type: 'channel.channel_points_custom_reward_redemption.add', version: '1' },
           { type: 'channel.channel_points_automatic_reward_redemption.add', version: '2' },
@@ -609,7 +617,12 @@ export class TwitchService {
              }
         }
 
-        const condition = { broadcaster_user_id: streamerToken.twitchId };
+        let condition = { broadcaster_user_id: streamerToken.twitchId };
+        
+        // Handle special condition for Raids
+        if (def.type === 'channel.raid') {
+             condition = { to_broadcaster_user_id: streamerToken.twitchId };
+        }
         
         if (def.requiresModerator) {
             // For manual/bot use, the moderator ID usually needs to be the BOT ID if it's a mod event
@@ -636,10 +649,10 @@ export class TwitchService {
             return keysA.every(key => String(condition[key]) === String(sCond[key]));
         });
 
-        // Cleanup duplicates
+        // Cleanup duplicates (checking against broadcaster or to_broadcaster)
         const relevantSubs = allSubs.filter(s => 
             s.type === def.type && 
-            s.condition.broadcaster_user_id === streamerToken.twitchId &&
+            (s.condition.broadcaster_user_id === streamerToken.twitchId || s.condition.to_broadcaster_user_id === streamerToken.twitchId) &&
             // Also check bot ID if applicable to avoid deleting other bots' subs
             (!def.requiresBot || s.condition.user_id === botTokenDoc?.twitchId)
         );
@@ -703,7 +716,8 @@ export class TwitchService {
           
           const userSubs = allSubs.filter(s => s.condition && (
             s.condition.broadcaster_user_id === twitchId || 
-            s.condition.moderator_user_id === twitchId
+            s.condition.moderator_user_id === twitchId ||
+            s.condition.to_broadcaster_user_id === twitchId
           ));
           
           for (const sub of userSubs) {

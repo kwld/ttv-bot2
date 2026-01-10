@@ -69,6 +69,10 @@ ws.on('message', (raw) => {
           const channel = e.broadcaster_user_name || e.broadcaster_user_login;
           console.log(`  [Chat] #${channel} ${user}: ${msg}`);
       }
+      // Channel Raid
+      else if (payload.type === 'channel.raid') {
+          console.log(`  [Raid] ${e.from_broadcaster_user_name} raided with ${e.viewers} viewers!`);
+      }
       // Stream Online
       else if (payload.type === 'stream.online') {
           console.log(`  [Stream] ${e.broadcaster_user_name} is now LIVE at ${e.started_at}!`);

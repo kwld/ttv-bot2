@@ -22,8 +22,9 @@ export class EventSubService {
         }
 
         const type = subscription.type;
-        const broadcasterId = event.broadcaster_user_id;
-        const broadcasterName = event.broadcaster_user_name || event.broadcaster_user_login;
+        // Handle different event structures where broadcaster ID might be named differently
+        const broadcasterId = event.broadcaster_user_id || event.to_broadcaster_user_id;
+        const broadcasterName = event.broadcaster_user_name || event.broadcaster_user_login || event.to_broadcaster_user_name;
 
         if (!broadcasterId) {
             return;
@@ -78,6 +79,12 @@ export class EventSubService {
             eventUserLogin = event.chatter_user_login;
             eventUserName = event.chatter_user_name;
         }
+        
+        if (type === 'channel.raid' && event.from_broadcaster_user_id) {
+            eventUserId = event.from_broadcaster_user_id;
+            eventUserLogin = event.from_broadcaster_user_login;
+            eventUserName = event.from_broadcaster_user_name;
+        }
 
         if (eventUserId) {
             if (!usersDB[eventUserId]) {
@@ -127,6 +134,35 @@ export class EventSubService {
                 }
             }
         };
+        
+        // --- CHANNEL RAID ---
+        if (type === 'channel.raid') {
+            const viewers = event.viewers;
+            
+            broadcastToUser(broadcasterId, { 
+                type: 'CHAT_MESSAGE', 
+                payload: {
+                    id: crypto.randomUUID(),
+                    provider: 'twitch',
+                    channelId: broadcasterId,
+                    channelName: broadcasterName,
+                    text: `${event.from_broadcaster_user_name} is raiding with ${viewers} viewers!`,
+                    user: { id: 'system', username: 'system', displayName: 'System', badges: {} },
+                    timestamp: Date.now(),
+                    isSystem: true,
+                    metadata: { level: 'success' }, 
+                    isLive: true
+                } 
+            });
+            
+            await runCommand(['On Raid'], [String(viewers)], {
+                isRaid: true,
+                raid: {
+                    viewerCount: viewers,
+                    raiderName: event.from_broadcaster_user_name
+                }
+            });
+        }
 
         // --- CUSTOM REWARD REDEMPTION ---
         if (type === 'channel.channel_points_custom_reward_redemption.add') {
@@ -272,7 +308,7 @@ export class EventSubService {
                 'community_sub_gift': 'On Subscription',
                 'gift_paid_upgrade': 'On Subscription',
                 'prime_paid_upgrade': 'On Subscription',
-                'raid': 'On Raid',
+                'raid': 'On Raid', // NOTE: 'channel.raid' is preferred, but we keep this for chat visual trigger
                 'unraid': 'On Raid'
             };
 
