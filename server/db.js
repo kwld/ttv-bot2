@@ -89,14 +89,15 @@ const authSchema = new mongoose.Schema({
 const channelSettingsSchema = new mongoose.Schema({
   channelId: { type: String, required: true, unique: true },
   channelName: String, 
-  displayName: String, // Added
-  profileImageUrl: String, // Added
+  displayName: String, 
+  profileImageUrl: String, 
   editors: [{ 
       id: String, 
       username: String,
       displayName: String 
   }],
   botEnabled: { type: Boolean, default: true },
+  botIsModerator: { type: Boolean, default: false }, // New Field
   isLocked: { type: Boolean, default: false },
   clientLocked: { type: Boolean, default: false },
   serverLocked: { type: Boolean, default: false },

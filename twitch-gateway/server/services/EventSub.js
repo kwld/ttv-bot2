@@ -1,15 +1,17 @@
 
 import crypto from 'crypto';
 import { WebSocket } from 'ws';
-import { AuthModel, ChannelSettingsModel } from '../db.js';
+import { AuthModel, ChannelSettingsModel, Token } from '../db.js';
 import { usersDB, commandsDB, userSockets, botClient, cachedLiveStreams } from '../context.js';
 import { broadcastToUser } from '../socket.js';
+import { TwitchService } from '../twitch-service.js';
 
 // LOGGING: Default to TRUE unless explicitly silenced
 const SHOULD_LOG = process.env.QUIET_EVENTSUB !== 'true';
 
 export class EventSubService {
     static executorFactory = null;
+    static twitchService = null; // To access cleanup logic
 
     static setExecutorFactory(fn) {
         this.executorFactory = fn;
@@ -24,14 +26,85 @@ export class EventSubService {
 
         const type = subscription.type;
         // Handle different event structures where broadcaster ID might be named differently
-        const broadcasterId = event.broadcaster_user_id || event.to_broadcaster_user_id;
-        const broadcasterName = event.broadcaster_user_name || event.broadcaster_user_login || event.to_broadcaster_user_name;
+        const broadcasterId = event.broadcaster_user_id || event.to_broadcaster_user_id || event.user_id;
+        const broadcasterName = event.broadcaster_user_name || event.broadcaster_user_login || event.to_broadcaster_user_name || event.user_name;
 
         // --- CONSOLE LOG INFO ---
         if (SHOULD_LOG) {
             const userInitiator = event.user_name || event.chatter_user_name || 'System';
-            console.log(`[EventSub] 📨 ${type} | Channel: ${broadcasterName} | User: ${userInitiator}`);
+            console.log(`[EventSub] 📨 ${type} | Channel/User: ${broadcasterName} | User: ${userInitiator}`);
         }
+
+        // --- GLOBAL APP EVENTS (Authorization) ---
+        
+        if (type === 'user.authorization.grant') {
+             console.log(`[EventSub] Authorization GRANTED by user ${event.user_name} (${event.user_id})`);
+             // This is mostly informational as the OAuth flow handles creation.
+             // But we could use it to trigger a welcome flow or sync.
+             return;
+        }
+
+        if (type === 'user.authorization.revoke') {
+             const revokedUserId = event.user_id;
+             console.warn(`[EventSub] Authorization REVOKED by user ${event.user_name} (${revokedUserId})`);
+             
+             // Cleanup Token
+             try {
+                 // Initialize a temp service just for removal if static instance missing (hacky but effective)
+                 // Ideally EventSubService should have DI.
+                 // For now, we manually replicate the removal logic or rely on DB trigger.
+                 
+                 // 1. Remove from DB
+                 await Token.deleteOne({ twitchId: revokedUserId });
+                 
+                 // 2. Notify Gateway Clients (App Server)
+                 // We can broadcast a 'CHANNEL_SYNC' delete event
+                 // We can't access gateway instance easily here without refactoring.
+                 // BUT: The GatewayClient (App Server) has its own listeners.
+                 // We need to broadcast from THIS server to the App Server via WebSocket.
+                 // `broadcastToUser` sends to User Clients (Browser). We need `gateway.broadcast` which sends to App Server.
+                 
+                 // Accessing gateway from import is hard circular dep.
+                 // Rely on `broadcastToUser`? No, that's for browser clients.
+                 
+                 // Fallback: Just delete from DB. The App Server will eventually fail to refresh and clean up.
+                 // Or we rely on the `EventSubService` usually being called *by* the Gateway/TwitchService which passes context.
+                 // Here `handleNotification` is called by `GatewayClient.js` in `handlePayload`.
+                 
+                 // Let's implement full cleanup in TwitchService and call it here if we can instance it.
+                 // Since we can't easily, we just update DB.
+                 
+             } catch(e) {
+                 console.error("Error handling revoke:", e);
+             }
+             return;
+        }
+
+        if (type === 'user.update') {
+             const updatedUserId = event.user_id;
+             const newLogin = event.user_login;
+             const newEmail = event.email;
+             const newDescription = event.description;
+             
+             console.log(`[EventSub] User Update for ${newLogin}: ${event.description?.substring(0, 20)}...`);
+             
+             try {
+                 const token = await Token.findOne({ twitchId: updatedUserId });
+                 if (token) {
+                     let changed = false;
+                     if (token.login !== newLogin) { token.login = newLogin; changed = true; }
+                     // Note: We don't store description/email in Token model usually, but could if needed.
+                     
+                     if (changed) {
+                         await token.save();
+                         // Broadcast Sync
+                         // See note above about broadcasting to App Server.
+                     }
+                 }
+             } catch(e) {}
+             return;
+        }
+
 
         if (!broadcasterId) {
             return;
@@ -121,12 +194,6 @@ export class EventSubService {
 
         const runCommand = async (triggerEvents, args = [], eventData = {}) => {
             const channelCommands = commandsDB.filter(c => c.channelId === broadcasterId && c.enabled);
-            
-            // Log for debugging flow triggers
-            if (SHOULD_LOG) {
-                // console.log(`[EventSub] Searching for commands matching triggers: ${triggerEvents.join(', ')} in ${channelCommands.length} active commands.`);
-            }
-
             const cmd = channelCommands.find(c => {
                 const events = c.rootAction.settings.eventTriggers || [];
                 return events.some(evt => triggerEvents.includes(evt));
@@ -146,15 +213,10 @@ export class EventSubService {
                 } catch (e) {
                     console.error("EventSub Exec Error:", e);
                 }
-            } else {
-                 if (SHOULD_LOG) {
-                     // console.log(`[EventSub] No command configured for ${triggerEvents[0]}`);
-                 }
             }
         };
         
         // --- DIRECT SUBSCRIPTION TRIGGERS ---
-        // These ensure flows run even if the chat notification is delayed/missing
         
         if (type === 'channel.subscribe') {
             await runCommand(['On Subscription'], ['1'], {
@@ -358,14 +420,8 @@ export class EventSubService {
                 } 
             });
 
-            // Note: Subscription/Raid triggers are usually handled by explicit events above,
-            // but we keep this as a fallback for the specific chat visualization triggers or older API versions
             const triggerMap = {
-                // 'sub': 'On Subscription', // Handled by channel.subscribe
-                // 'resub': 'On Subscription', // Handled by channel.subscription.message
-                // 'sub_gift': 'On Subscription', // Handled by channel.subscription.gift
-                // 'raid': 'On Raid', // Handled by channel.raid
-                'community_sub_gift': 'On Subscription', // Still useful if no specific event
+                'community_sub_gift': 'On Subscription',
                 'gift_paid_upgrade': 'On Subscription',
                 'prime_paid_upgrade': 'On Subscription',
                 'unraid': 'On Raid'

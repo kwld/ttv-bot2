@@ -165,7 +165,7 @@
                                 <th class="px-6 py-3">Channel</th>
                                 <th class="px-6 py-3">Channel ID</th>
                                 <th class="px-6 py-3 text-center">Stream Live</th>
-                                <th class="px-6 py-3 text-center">Bot Joined</th>
+                                <th class="px-6 py-3 text-center">Bot Status</th>
                                 <th class="px-6 py-3 text-center">Clients</th>
                                 <th class="px-6 py-3 text-center">API Access</th>
                                 <th class="px-6 py-3 text-center">Actions</th>
@@ -411,7 +411,18 @@
                         liveBadge = ch.isLive ? '<span class="px-2 py-1 rounded bg-red-500/20 text-red-400 border border-red-500/30 text-[9px] font-black uppercase">LIVE</span>' : '<span class="px-2 py-1 rounded bg-slate-700 text-slate-400 text-[9px] font-black uppercase">OFFLINE</span>';
                     }
 
-                    const botBadge = ch.botJoined ? '<span class="text-emerald-400 font-bold"><i class="fas fa-check-circle"></i> Joined</span>' : '<span class="text-slate-500 italic">Parted</span>';
+                    // Bot Status Badge with Mod Icon support
+                    let botBadge = '<span class="text-slate-500 italic">Parted</span>';
+                    if (ch.botEnabled) {
+                        if (ch.botIsModerator) {
+                            botBadge = '<span class="text-emerald-400 font-bold flex items-center justify-center gap-1"><i class="fas fa-shield-alt"></i> Mod</span>';
+                        } else {
+                            botBadge = '<span class="text-cyan-400 font-bold flex items-center justify-center gap-1"><i class="fas fa-check-circle"></i> Joined</span>';
+                        }
+                    } else {
+                        botBadge = '<span class="text-amber-500 italic">Disabled</span>';
+                    }
+
                     const clientBadge = ch.clientCount > 0 ? `<span class="px-2 py-1 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[9px] font-black uppercase">${ch.clientCount} Connected</span>` : '<span class="text-slate-600">-</span>';
                     const apiEnabled = !!ch.apiEnabled;
                     const apiBtnClass = apiEnabled ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30' : 'bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20';

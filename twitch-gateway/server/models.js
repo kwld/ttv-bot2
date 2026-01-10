@@ -12,7 +12,8 @@ const tokenSchema = new mongoose.Schema({
   obtainedAt: { type: Date, default: Date.now },
   scope: [String],
   type: { type: String, enum: ['bot', 'streamer'], required: true },
-  isManual: { type: Boolean, default: false } // New flag
+  isManual: { type: Boolean, default: false },
+  botIsModerator: { type: Boolean, default: false } // New field: tracks if the Bot user is a Mod in this Streamer's channel
 });
 
 // Calculate expiry dynamically

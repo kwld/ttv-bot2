@@ -642,7 +642,8 @@ router.get('/api/admin/status', adminAuth, async (req, res) => {
                 isLocked: settings ? (settings.isLocked || settings.serverLocked) : false, 
                 botEnabled: settings ? settings.botEnabled : true, 
                 editors: settings ? (settings.editors || []) : [],
-                isLive: isLive
+                isLive: isLive,
+                botIsModerator: settings ? settings.botIsModerator : false // Expose mod status
             });
         });
         
@@ -660,7 +661,8 @@ router.get('/api/admin/status', adminAuth, async (req, res) => {
                     isLocked: (c.isLocked || c.serverLocked), 
                     botEnabled: c.botEnabled, 
                     editors: c.editors || [],
-                    isLive: isLive
+                    isLive: isLive,
+                    botIsModerator: c.botIsModerator // Expose mod status
                 });
             }
         });

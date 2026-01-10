@@ -190,29 +190,35 @@ export class GatewayClient {
 
         // --- CHANNEL SYNC (AUTO-CREATE/DELETE) ---
         if (type === 'CHANNEL_SYNC') {
-            const { action, channelId, channelName, avatar } = payload;
+            const { action, channelId, channelName, avatar, botIsModerator } = payload;
             if (IS_DEV) console.log(`[GatewayClient] Syncing Channel ${channelId} (${action})`);
             
             if (action === 'upsert') {
                 try {
+                    const updateData = {
+                        channelId,
+                        channelName,
+                        displayName: channelName,
+                        profileImageUrl: avatar,
+                        botEnabled: true,
+                        // Use $setOnInsert for fields we don't want to overwrite on existing docs
+                        $setOnInsert: { 
+                            isLocked: false, 
+                            clientLocked: false,
+                            serverLocked: false,
+                            editors: [], 
+                            currencyName: 'Points', 
+                            currencySymbol: '$' 
+                        }
+                    };
+                    
+                    if (botIsModerator !== undefined) {
+                        updateData.botIsModerator = botIsModerator;
+                    }
+
                     await ChannelSettingsModel.findOneAndUpdate(
                         { channelId },
-                        {
-                            channelId,
-                            channelName,
-                            displayName: channelName,
-                            profileImageUrl: avatar,
-                            botEnabled: true, // Default on
-                            // Use $setOnInsert to strictly NOT overwrite editors or locks if already exists
-                            $setOnInsert: { 
-                                isLocked: false, 
-                                clientLocked: false,
-                                serverLocked: false,
-                                editors: [], 
-                                currencyName: 'Points', 
-                                currencySymbol: '$' 
-                            }
-                        },
+                        updateData,
                         { upsert: true, new: true }
                     );
                 } catch (e) {

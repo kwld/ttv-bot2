@@ -43,8 +43,17 @@ export class TwitchService {
     // Sync EventSub subscriptions
     await this.syncAllStreamers();
 
+    // Setup Global/App Level Subscriptions (Revoke/Grant)
+    await this.setupAppLevelSubscriptions();
+
     // 3. Initial Stream Status Check
     await this.checkStreamStatuses();
+
+    // 4. Initial Moderator Check
+    await this.checkModeratorRoles();
+
+    // Start Intervals
+    setInterval(() => this.checkModeratorRoles(), 300000); // Every 5 minutes
   }
 
   async checkStreamStatuses() {
@@ -103,6 +112,61 @@ export class TwitchService {
     } catch (e) {
         console.error('[TwitchService] Failed to check stream statuses:', e.message);
     }
+  }
+
+  async checkModeratorRoles() {
+      if (!this.botUserId) return;
+      if (IS_DEV) console.log('[TwitchService] Checking Moderator status for bot...');
+
+      try {
+          const streamers = await Token.find({ type: 'streamer', isManual: false });
+          
+          for (const streamer of streamers) {
+              if (streamer.isExpired()) {
+                  try {
+                      await this.refreshToken(streamer);
+                  } catch(e) {
+                      console.warn(`[TwitchService] Skipping mod check for ${streamer.login} (Token Expired)`);
+                      continue;
+                  }
+              }
+
+              // Use the STREAMER'S token to check if the BOT is a moderator
+              try {
+                  const res = await axios.get(`https://api.twitch.tv/helix/moderation/moderators?broadcaster_id=${streamer.twitchId}&user_id=${this.botUserId}`, {
+                      headers: {
+                          'Client-ID': process.env.TWITCH_CLIENT_ID,
+                          'Authorization': `Bearer ${streamer.accessToken}`
+                      }
+                  });
+
+                  const isMod = res.data.data && res.data.data.length > 0;
+                  
+                  if (streamer.botIsModerator !== isMod) {
+                      streamer.botIsModerator = isMod;
+                      await streamer.save();
+                      
+                      if (IS_DEV) console.log(`[TwitchService] Updated mod status for ${streamer.login}: ${isMod}`);
+                      
+                      // Notify App Server
+                      if (this.gateway) {
+                          this.gateway.broadcast('CHANNEL_SYNC', { 
+                              action: 'upsert', 
+                              channelId: streamer.twitchId, 
+                              channelName: streamer.displayName || streamer.login, 
+                              avatar: streamer.avatar,
+                              botIsModerator: isMod 
+                          });
+                      }
+                  }
+              } catch (e) {
+                  // 401/403 usually means token revoked or scope missing
+                  if (IS_DEV) console.warn(`[TwitchService] Failed to check mod status for ${streamer.login}: ${e.response?.status}`);
+              }
+          }
+      } catch (e) {
+          console.error('[TwitchService] Mod Check Loop Error:', e.message);
+      }
   }
 
   async disconnect() {
@@ -479,6 +543,60 @@ export class TwitchService {
       }
   }
 
+  // --- APP LEVEL SUBSCRIPTIONS (Grant/Revoke) ---
+  
+  async setupAppLevelSubscriptions() {
+      console.log('[EventSub] Setting up global App-Level subscriptions...');
+      
+      const definitions = [
+          { type: 'user.authorization.grant', version: '1' },
+          { type: 'user.authorization.revoke', version: '1' },
+          // user.update requires user_id condition, so it's per-user, not global
+      ];
+      
+      const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+      const secret = process.env.TWITCH_WEBHOOK_SECRET;
+      const callbackUrl = `${publicUrl}/webhooks/callback`;
+      const clientId = process.env.TWITCH_CLIENT_ID;
+
+      try {
+          const appAccessToken = await this.getAppAccessToken();
+          const allSubs = await this.getAllSubscriptions(appAccessToken);
+
+          for (const def of definitions) {
+              const condition = { client_id: clientId };
+              
+              const validSub = allSubs.find(s => {
+                  if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
+                  if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
+                  return s.condition.client_id === clientId;
+              });
+
+              if (validSub) continue;
+
+              await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
+                  type: def.type,
+                  version: def.version,
+                  condition: condition,
+                  transport: {
+                      method: 'webhook',
+                      callback: callbackUrl,
+                      secret: secret
+                  }
+              }, {
+                  headers: {
+                      'Client-ID': clientId,
+                      'Authorization': `Bearer ${appAccessToken}`,
+                      'Content-Type': 'application/json'
+                  }
+              });
+              console.log(`[EventSub] Subscribed to ${def.type} (App Level)`);
+          }
+      } catch (e) {
+          console.error(`[EventSub] Failed to setup app level subs`, e.response?.data || e.message);
+      }
+  }
+
   // Set up Public Events (No Auth Required) for a specific Channel ID
   async setupPublicEventSub(channelId) {
       if (!channelId) return;
@@ -605,6 +723,7 @@ export class TwitchService {
           { type: 'channel.shared_chat.begin', version: '1' },
           { type: 'channel.shared_chat.update', version: '1' },
           { type: 'channel.shared_chat.end', version: '1' },
+          { type: 'user.update', version: '1' } // User Updates (Name/Desc)
         ];
     }
     
@@ -619,7 +738,8 @@ export class TwitchService {
       'channel.cheer': 'bits:read',
       'channel.bits.use': 'bits:read',
       'channel.channel_points_custom_reward_redemption.add': 'channel:read:redemptions',
-      'channel.channel_points_automatic_reward_redemption.add': 'channel:read:redemptions'
+      'channel.channel_points_automatic_reward_redemption.add': 'channel:read:redemptions',
+      // user.update technically needs no scope for basic info, user:read:email for email
     };
 
     const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
@@ -640,11 +760,16 @@ export class TwitchService {
              }
         }
 
-        let condition = { broadcaster_user_id: streamerToken.twitchId };
+        let condition = {};
         
-        // Handle special condition for Raids
-        if (def.type === 'channel.raid') {
-             condition = { to_broadcaster_user_id: streamerToken.twitchId };
+        if (def.type === 'user.update') {
+            condition = { user_id: streamerToken.twitchId };
+        } else {
+            condition = { broadcaster_user_id: streamerToken.twitchId };
+             // Handle special condition for Raids
+            if (def.type === 'channel.raid') {
+                 condition = { to_broadcaster_user_id: streamerToken.twitchId };
+            }
         }
         
         // --- BOT-CENTRIC LOGIC ---
@@ -665,7 +790,6 @@ export class TwitchService {
                 continue;
             }
             condition.moderator_user_id = botTokenDoc.twitchId;
-            // Use App Access Token (standard for Webhooks) - authorized because Bot granted scope to Client ID
         }
 
         const validSub = allSubs.find(s => {
@@ -679,9 +803,12 @@ export class TwitchService {
         });
 
         // Cleanup duplicates (checking against broadcaster or to_broadcaster)
+        // Be careful with user.update which uses user_id
         const relevantSubs = allSubs.filter(s => 
             s.type === def.type && 
-            (s.condition.broadcaster_user_id === streamerToken.twitchId || s.condition.to_broadcaster_user_id === streamerToken.twitchId) &&
+            (s.condition.user_id === streamerToken.twitchId || 
+             s.condition.broadcaster_user_id === streamerToken.twitchId || 
+             s.condition.to_broadcaster_user_id === streamerToken.twitchId) &&
             // Also check bot ID if applicable to avoid deleting other bots' subs
             (!def.requiresBot || s.condition.user_id === botTokenDoc?.twitchId) &&
             (def.type !== 'channel.follow' || s.condition.moderator_user_id === botTokenDoc?.twitchId)
@@ -697,9 +824,8 @@ export class TwitchService {
         // Subscription Logic
         // Manual streamers ALWAYS use App Access Token because they have no User Token
         // 'channel.follow' uses App Token authorized by Bot's scope.
-        if (!streamerToken.isManual && !def.requiresBot && def.type !== 'channel.follow') {
+        if (!streamerToken.isManual && !def.requiresBot && def.type !== 'channel.follow' && def.type !== 'user.update') {
              // If we have a real user token, we could use it, but App Token is generally preferred for Webhooks where possible.
-             // Sticking to App Token for consistency unless specific event demands User Token (rare for Webhooks).
         }
 
         try {
@@ -733,7 +859,8 @@ export class TwitchService {
             action: 'upsert', 
             channelId: streamerToken.twitchId, 
             channelName: streamerToken.displayName || streamerToken.login, 
-            avatar: streamerToken.avatar 
+            avatar: streamerToken.avatar,
+            botIsModerator: streamerToken.botIsModerator 
         });
     }
   }
@@ -747,7 +874,8 @@ export class TwitchService {
           const userSubs = allSubs.filter(s => s.condition && (
             s.condition.broadcaster_user_id === twitchId || 
             s.condition.moderator_user_id === twitchId ||
-            s.condition.to_broadcaster_user_id === twitchId
+            s.condition.to_broadcaster_user_id === twitchId ||
+            s.condition.user_id === twitchId
           ));
           
           for (const sub of userSubs) {
