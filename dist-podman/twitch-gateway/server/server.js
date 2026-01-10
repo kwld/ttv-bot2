@@ -192,7 +192,8 @@ app.get(AUTH_CALLBACK_PATH, async (req, res) => {
 
 if (process.env.NODE_ENV === 'production') {
     app.use(express.static(path.join(__dirname, '../public')));
-    app.get('*', (req, res, next) => {
+    // Fix for Express 5 catch-all route
+    app.get(/(.*)/, (req, res, next) => {
         if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/webhooks')) return next();
         res.sendFile(path.join(__dirname, '../public/index.html'));
     });

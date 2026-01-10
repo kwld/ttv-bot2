@@ -83,6 +83,15 @@ const init = async () => {
 // Use Express Router
 app.use(apiRouter);
 
+if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.join(__dirname, '../public')));
+    // Fix for Express 5: Use regex instead of '*' string for catch-all
+    app.get(/(.*)/, (req, res, next) => {
+        if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/webhooks')) return next();
+        res.sendFile(path.join(__dirname, '../public/index.html'));
+    });
+}
+
 const httpServer = http.createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
