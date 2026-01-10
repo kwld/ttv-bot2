@@ -4,6 +4,7 @@ import { WebSocket } from 'ws';
 import { AuthModel, ChannelSettingsModel, Token } from '../db.js';
 import { usersDB, commandsDB, userSockets, botClient, cachedLiveStreams } from '../context.js';
 import { broadcastToUser } from '../socket.js';
+import axios from 'axios';
 import { TwitchService } from '../twitch-service.js';
 
 // LOGGING: Default to TRUE unless explicitly silenced
@@ -50,30 +51,8 @@ export class EventSubService {
              
              // Cleanup Token
              try {
-                 // Initialize a temp service just for removal if static instance missing (hacky but effective)
-                 // Ideally EventSubService should have DI.
-                 // For now, we manually replicate the removal logic or rely on DB trigger.
-                 
                  // 1. Remove from DB
                  await Token.deleteOne({ twitchId: revokedUserId });
-                 
-                 // 2. Notify Gateway Clients (App Server)
-                 // We can broadcast a 'CHANNEL_SYNC' delete event
-                 // We can't access gateway instance easily here without refactoring.
-                 // BUT: The GatewayClient (App Server) has its own listeners.
-                 // We need to broadcast from THIS server to the App Server via WebSocket.
-                 // `broadcastToUser` sends to User Clients (Browser). We need `gateway.broadcast` which sends to App Server.
-                 
-                 // Accessing gateway from import is hard circular dep.
-                 // Rely on `broadcastToUser`? No, that's for browser clients.
-                 
-                 // Fallback: Just delete from DB. The App Server will eventually fail to refresh and clean up.
-                 // Or we rely on the `EventSubService` usually being called *by* the Gateway/TwitchService which passes context.
-                 // Here `handleNotification` is called by `GatewayClient.js` in `handlePayload`.
-                 
-                 // Let's implement full cleanup in TwitchService and call it here if we can instance it.
-                 // Since we can't easily, we just update DB.
-                 
              } catch(e) {
                  console.error("Error handling revoke:", e);
              }
@@ -83,8 +62,6 @@ export class EventSubService {
         if (type === 'user.update') {
              const updatedUserId = event.user_id;
              const newLogin = event.user_login;
-             const newEmail = event.email;
-             const newDescription = event.description;
              
              console.log(`[EventSub] User Update for ${newLogin}: ${event.description?.substring(0, 20)}...`);
              
@@ -93,12 +70,9 @@ export class EventSubService {
                  if (token) {
                      let changed = false;
                      if (token.login !== newLogin) { token.login = newLogin; changed = true; }
-                     // Note: We don't store description/email in Token model usually, but could if needed.
                      
                      if (changed) {
                          await token.save();
-                         // Broadcast Sync
-                         // See note above about broadcasting to App Server.
                      }
                  }
              } catch(e) {}
@@ -507,4 +481,481 @@ export class EventSubService {
              });
         }
     }
+    
+    // --- APP LEVEL SUBSCRIPTIONS (Grant/Revoke) ---
+  
+    async setupAppLevelSubscriptions() {
+      console.log('[EventSub] Setting up global App-Level subscriptions...');
+      
+      const definitions = [
+          { type: 'user.authorization.grant', version: '1' },
+          { type: 'user.authorization.revoke', version: '1' },
+      ];
+      
+      const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+      const secret = process.env.TWITCH_WEBHOOK_SECRET;
+      const callbackUrl = `${publicUrl}/webhooks/callback`;
+      const clientId = process.env.TWITCH_CLIENT_ID;
+
+      try {
+          const appAccessToken = await this.getAppAccessToken();
+          const allSubs = await this.getAllSubscriptions(appAccessToken);
+
+          for (const def of definitions) {
+              const condition = { client_id: clientId };
+              
+              const validSub = allSubs.find(s => {
+                  if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
+                  if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
+                  return s.condition.client_id === clientId;
+              });
+
+              if (validSub) continue;
+
+              await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
+                  type: def.type,
+                  version: def.version,
+                  condition: condition,
+                  transport: {
+                      method: 'webhook',
+                      callback: callbackUrl,
+                      secret: secret
+                  }
+              }, {
+                  headers: {
+                      'Client-ID': clientId,
+                      'Authorization': `Bearer ${appAccessToken}`,
+                      'Content-Type': 'application/json'
+                  }
+              });
+              console.log(`[EventSub] Subscribed to ${def.type} (App Level)`);
+          }
+      } catch (e) {
+          console.error(`[EventSub] Failed to setup app level subs`, e.response?.data || e.message);
+      }
+    }
+
+    // Set up Public Events (No Auth Required) for a specific Channel ID
+    async setupPublicEventSub(channelId) {
+      if (!channelId) return;
+      if (SHOULD_LOG) console.log(`[EventSub] Checking Public Subscriptions for ${channelId}...`);
+
+      const definitions = [
+        { type: 'stream.online', version: '1' },
+        { type: 'stream.offline', version: '1' },
+        { type: 'channel.raid', version: '1' }
+      ];
+
+      // Retrieve Bot ID for Chat Subscription (Automatically include chat for everyone)
+      let botTokenDoc = await Token.findOne({ type: 'bot' });
+      
+      // Ensure Bot token is fresh before use
+      if (botTokenDoc && botTokenDoc.isExpired()) {
+          botTokenDoc = await this.refreshToken(botTokenDoc);
+      }
+
+      if (botTokenDoc) {
+          // Add Chat Subscription if we have a bot to listen
+          definitions.push({ type: 'channel.chat.message', version: '1', requiresBot: true });
+      }
+
+      const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+      const secret = process.env.TWITCH_WEBHOOK_SECRET;
+      const callbackUrl = `${publicUrl}/webhooks/callback`;
+
+      try {
+          const appAccessToken = await this.getAppAccessToken();
+          const allSubs = await this.getAllSubscriptions(appAccessToken);
+
+          for (const def of definitions) {
+              let condition = { broadcaster_user_id: channelId };
+              
+              // Handle special condition for Raids
+              if (def.type === 'channel.raid') {
+                  condition = { to_broadcaster_user_id: channelId };
+              }
+
+              if (def.requiresBot) {
+                  if (!botTokenDoc) continue;
+                  condition.user_id = botTokenDoc.twitchId;
+              }
+
+              // Check if already subscribed correctly
+              const validSub = allSubs.find(s => {
+                  if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
+                  if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
+                  
+                  // Check condition matching
+                  const sCond = s.condition;
+                  const keysA = Object.keys(condition);
+                  const keysB = Object.keys(sCond);
+                  if (keysA.length !== keysB.length) return false;
+                  return keysA.every(key => String(condition[key]) === String(sCond[key]));
+              });
+
+              if (validSub) continue; // Already exists
+
+              // Create Subscription
+              try {
+                await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
+                    type: def.type,
+                    version: def.version,
+                    condition: condition,
+                    transport: {
+                        method: 'webhook',
+                        callback: callbackUrl,
+                        secret: secret
+                    }
+                }, {
+                    headers: {
+                        'Client-ID': process.env.TWITCH_CLIENT_ID,
+                        'Authorization': `Bearer ${appAccessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                if (SHOULD_LOG) console.log(`[EventSub] Subscribed to ${def.type} for ${channelId} (Public)`);
+              } catch (subErr) {
+                 // --- FALLBACK LOGIC FOR PUBLIC CHAT SUB ---
+                 if (def.type === 'channel.chat.message' && botTokenDoc && botTokenDoc.accessToken) {
+                    if (subErr.response?.status === 403 || subErr.response?.status === 401 || subErr.response?.status === 400) {
+                        if (SHOULD_LOG) console.log(`[EventSub] Standard auth failed for Public ${def.type}. Retrying with Bot User Token...`);
+                        try {
+                            await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
+                                type: def.type,
+                                version: def.version,
+                                condition: condition,
+                                transport: {
+                                    method: 'webhook',
+                                    callback: callbackUrl,
+                                    secret: secret
+                                }
+                            }, {
+                                headers: {
+                                    'Client-ID': process.env.TWITCH_CLIENT_ID,
+                                    'Authorization': `Bearer ${botTokenDoc.accessToken}`,
+                                    'Content-Type': 'application/json'
+                                }
+                            });
+                            console.log(`[EventSub] Fallback subscription successful for ${def.type} (Public)`);
+                        } catch (fbError) {
+                            if (fbError.response?.status !== 409) {
+                                console.error(`[EventSub] Fallback failed for Public ${def.type}:`, fbError.response?.data || fbError.message);
+                            }
+                        }
+                    }
+                 } else if (subErr.response?.status !== 409) {
+                    console.error(`[EventSub] Failed to setup public subs for ${channelId}`, subErr.response?.data || subErr.message);
+                 }
+              }
+          }
+      } catch (e) {
+         console.error(`[EventSub] General failure in setupPublicEventSub`, e.message);
+      }
+  }
+
+  async setupEventSub(streamerToken) {
+    if (streamerToken.isExpired()) {
+      await this.refreshToken(streamerToken);
+    }
+    
+    let botTokenDoc = await Token.findOne({ type: 'bot' });
+    if (!botTokenDoc) {
+        console.warn("[EventSub] No Bot Token found. Some subscriptions may fail.");
+    } else if (botTokenDoc.isExpired()) {
+        botTokenDoc = await this.refreshToken(botTokenDoc);
+    }
+    
+    let definitions = [];
+
+    // Filter events based on manual vs authenticated streamer
+    if (streamerToken.isManual) {
+        // Manual streamers only get public events + chat (via bot)
+        definitions = [
+            { type: 'stream.online', version: '1' },
+            { type: 'stream.offline', version: '1' },
+            { type: 'channel.raid', version: '1' },
+            // FORCED ADD: Chat & Follow for Manual Streamers (Uses Bot Permissions)
+            { type: 'channel.chat.message', version: '1', requiresBot: true },
+            { type: 'channel.follow', version: '2' }
+        ];
+    } else {
+        // Full list for authenticated streamers
+        definitions = [
+          { type: 'stream.online', version: '1' },
+          { type: 'stream.offline', version: '1' },
+          { type: 'channel.raid', version: '1' },
+          { type: 'channel.chat.message', version: '1', requiresBot: true },
+          { type: 'channel.channel_points_custom_reward_redemption.add', version: '1' },
+          { type: 'channel.channel_points_automatic_reward_redemption.add', version: '2' },
+          { type: 'channel.cheer', version: '1' },
+          { type: 'channel.bits.use', version: '1' },
+          { type: 'channel.follow', version: '2' },
+          { type: 'channel.subscribe', version: '1' },
+          { type: 'channel.subscription.end', version: '1' },
+          { type: 'channel.subscription.gift', version: '1' },
+          { type: 'channel.subscription.message', version: '1' },
+          { type: 'channel.shared_chat.begin', version: '1' },
+          { type: 'channel.shared_chat.update', version: '1' },
+          { type: 'channel.shared_chat.end', version: '1' },
+          { type: 'user.update', version: '1' } // User Updates (Name/Desc)
+        ];
+    }
+    
+    const SCOPE_REQUIREMENTS = {
+      'channel.subscribe': 'channel:read:subscriptions',
+      'channel.subscription.end': 'channel:read:subscriptions',
+      'channel.subscription.gift': 'channel:read:subscriptions',
+      'channel.subscription.message': 'channel:read:subscriptions',
+      'channel.cheer': 'bits:read',
+      'channel.bits.use': 'bits:read',
+      'channel.channel_points_custom_reward_redemption.add': 'channel:read:redemptions',
+      'channel.channel_points_automatic_reward_redemption.add': 'channel:read:redemptions',
+    };
+
+    const publicUrl = (process.env.GATEWAY_PUBLIC_URL || process.env.BASE_URL || '').replace(/\/$/, '');
+    const secret = process.env.TWITCH_WEBHOOK_SECRET;
+    const callbackUrl = `${publicUrl}/webhooks/callback`;
+    
+    const appAccessToken = await this.getAppAccessToken();
+    const allSubs = await this.getAllSubscriptions(appAccessToken);
+
+    for (const def of definitions) {
+        // Skip if required scopes missing on STREAMER token (unless it's a bot-only sub like Chat or Follow)
+        if (!def.requiresBot && def.type !== 'channel.follow') {
+             const requiredScope = SCOPE_REQUIREMENTS[def.type];
+             // If manual, we skip scope check because manual has no scopes
+             if (!streamerToken.isManual && requiredScope && (!streamerToken.scope || !streamerToken.scope.includes(requiredScope))) {
+                 if (SHOULD_LOG) console.log(`[EventSub] Skipping ${def.type} for ${streamerToken.login}: Missing scope ${requiredScope}`);
+                 continue; 
+             }
+        }
+
+        let condition = {};
+        
+        if (def.type === 'user.update') {
+            condition = { user_id: streamerToken.twitchId };
+        } else {
+            condition = { broadcaster_user_id: streamerToken.twitchId };
+             // Handle special condition for Raids
+            if (def.type === 'channel.raid') {
+                 condition = { to_broadcaster_user_id: streamerToken.twitchId };
+            }
+        }
+        
+        // --- BOT-CENTRIC LOGIC ---
+        // These events rely on the Bot's token or ID, not the Streamer's.
+        
+        let accessToken = appAccessToken;
+        
+        if (def.requiresBot) {
+            // Chat/Raid notification usually
+            if (!botTokenDoc) continue;
+            condition.user_id = botTokenDoc.twitchId;
+        } 
+        else if (def.type === 'channel.follow') {
+            if (!botTokenDoc) {
+                if (SHOULD_LOG) console.log(`[EventSub] Skipping ${def.type} for ${streamerToken.login}: No Bot connected.`);
+                continue;
+            }
+            condition.moderator_user_id = botTokenDoc.twitchId;
+        }
+
+        const validSub = allSubs.find(s => {
+            if (s.type !== def.type || s.version !== def.version || s.transport.callback !== callbackUrl) return false;
+            if (s.status !== 'enabled' && s.status !== 'webhook_callback_verification_pending') return false;
+            
+            // Check condition matching
+            const sCond = s.condition;
+            const keysA = Object.keys(condition);
+            const keysB = Object.keys(sCond);
+            if (keysA.length !== keysB.length) return false;
+            return keysA.every(key => String(condition[key]) === String(sCond[key]));
+        });
+
+        // Cleanup duplicates
+        const relevantSubs = allSubs.filter(s => 
+            s.type === def.type && 
+            (s.condition.user_id === streamerToken.twitchId || 
+             s.condition.broadcaster_user_id === streamerToken.twitchId || 
+             s.condition.to_broadcaster_user_id === streamerToken.twitchId) &&
+            (!def.requiresBot || s.condition.user_id === botTokenDoc?.twitchId) &&
+            (def.type !== 'channel.follow' || s.condition.moderator_user_id === botTokenDoc?.twitchId)
+        );
+
+        for (const sub of relevantSubs) {
+            if (validSub && sub.id === validSub.id) continue;
+            await this.deleteSubscription(sub.id, appAccessToken);
+        }
+
+        if (validSub) continue;
+        
+        try {
+            await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
+            type: def.type,
+            version: def.version,
+            condition: condition,
+            transport: {
+                method: 'webhook',
+                callback: callbackUrl,
+                secret: secret
+            }
+            }, {
+            headers: {
+                'Client-ID': process.env.TWITCH_CLIENT_ID,
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            }
+            });
+            console.log(`[EventSub] Subscribed to ${def.type} for ${streamerToken.login}`);
+        } catch (e) {
+            let handled = false;
+
+            // Fallback: Use Bot User Token for Chat if App Token fails (Missing channel:bot scope or Mod status)
+            if (def.type === 'channel.chat.message' && botTokenDoc && botTokenDoc.accessToken) {
+                // Only retry if the error suggests permission issues (403) or generic 400
+                if (e.response?.status === 403 || e.response?.status === 401 || e.response?.status === 400) {
+                     if (SHOULD_LOG) console.log(`[EventSub] Standard auth failed for ${def.type}. Retrying with Bot User Token...`);
+                     try {
+                         await axios.post('https://api.twitch.tv/helix/eventsub/subscriptions', {
+                            type: def.type,
+                            version: def.version,
+                            condition: condition,
+                            transport: {
+                                method: 'webhook',
+                                callback: callbackUrl,
+                                secret: secret
+                            }
+                        }, {
+                            headers: {
+                                'Client-ID': process.env.TWITCH_CLIENT_ID,
+                                'Authorization': `Bearer ${botTokenDoc.accessToken}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+                        console.log(`[EventSub] Fallback subscription successful for ${def.type}`);
+                        handled = true;
+                     } catch (fbError) {
+                         if (fbError.response?.status === 409) handled = true; // Exists
+                         else console.error(`[EventSub] Fallback failed for ${def.type}:`, fbError.response?.data || fbError.message);
+                     }
+                }
+            }
+
+            if (!handled && e.response?.status !== 409) {
+                console.error(`[EventSub] Failed to subscribe ${def.type} for ${streamerToken.login}`, e.response?.data);
+            }
+        }
+    }
+  }
+  
+  async removeStreamer(twitchId) {
+      if (SHOULD_LOG) console.log(`[Bot] Removing streamer ${twitchId}...`);
+      try {
+          const appAccessToken = await this.getAppAccessToken();
+          const allSubs = await this.getAllSubscriptions(appAccessToken);
+          
+          const userSubs = allSubs.filter(s => s.condition && (
+            s.condition.broadcaster_user_id === twitchId || 
+            s.condition.moderator_user_id === twitchId ||
+            s.condition.to_broadcaster_user_id === twitchId ||
+            s.condition.user_id === twitchId
+          ));
+          
+          for (const sub of userSubs) {
+              await this.deleteSubscription(sub.id, appAccessToken);
+          }
+      } catch (error) {
+          console.error(`[Bot] Error cleaning up subscriptions for ${twitchId}:`, error.message);
+      }
+
+      await Token.deleteOne({ twitchId, type: 'streamer' });
+  }
+
+  // --- TOKEN HELPERS ---
+
+  async refreshStreamerToken(twitchId) {
+    const tokenDoc = await Token.findOne({ twitchId, type: 'streamer' });
+    if (!tokenDoc) throw new Error('Streamer not found');
+    return this.refreshToken(tokenDoc);
+  }
+
+  async refreshToken(tokenDoc) {
+    try {
+      const res = await axios.post('https://id.twitch.tv/oauth2/token', null, {
+        params: {
+          client_id: process.env.TWITCH_CLIENT_ID,
+          client_secret: process.env.TWITCH_CLIENT_SECRET,
+          grant_type: 'refresh_token',
+          refresh_token: tokenDoc.refreshToken
+        }
+      });
+
+      tokenDoc.accessToken = res.data.access_token;
+      tokenDoc.refreshToken = res.data.refresh_token;
+      tokenDoc.expiresIn = res.data.expires_in;
+      tokenDoc.obtainedAt = new Date();
+      tokenDoc.scope = res.data.scope || tokenDoc.scope; 
+      await tokenDoc.save();
+      
+      return tokenDoc;
+    } catch (e) {
+      console.error('[Auth] Failed to refresh token', e.response?.data || e.message);
+      throw e;
+    }
+  }
+
+  async getAppAccessToken() {
+    try {
+      const res = await axios.post('https://id.twitch.tv/oauth2/token', null, {
+          params: {
+              client_id: process.env.TWITCH_CLIENT_ID,
+              client_secret: process.env.TWITCH_CLIENT_SECRET,
+              grant_type: 'client_credentials'
+          }
+      });
+      return res.data.access_token;
+    } catch (e) {
+      console.error("[Auth] Failed to get App Access Token", e.response?.data);
+      throw e;
+    }
+  }
+
+  async getAllSubscriptions(appAccessToken) {
+    let subscriptions = [];
+    let cursor = null;
+    try {
+      do {
+        const reqParams = cursor ? { after: cursor } : {};
+        const res = await axios.get('https://api.twitch.tv/helix/eventsub/subscriptions', {
+          headers: {
+            'Client-ID': process.env.TWITCH_CLIENT_ID,
+            'Authorization': `Bearer ${appAccessToken}`
+          },
+          params: reqParams
+        });
+        subscriptions = subscriptions.concat(res.data.data);
+        cursor = res.data.pagination?.cursor;
+      } while (cursor);
+    } catch (e) {
+      console.error("[EventSub] Failed to fetch list", e.response?.data || e.message);
+    }
+    return subscriptions;
+  }
+
+  async deleteSubscription(id, appAccessToken) {
+      try {
+          await axios.delete(`https://api.twitch.tv/helix/eventsub/subscriptions`, {
+              headers: {
+                  'Client-ID': process.env.TWITCH_CLIENT_ID,
+                  'Authorization': `Bearer ${appAccessToken}`
+              },
+              params: { id }
+          });
+          if (SHOULD_LOG) console.log(`[EventSub] Deleted subscription ${id}`);
+      } catch (e) {
+          if (e.response?.status !== 404) {
+             console.error(`[EventSub] Failed to delete subscription ${id}`, e.response?.data || e.message);
+          }
+      }
+  }
 }
