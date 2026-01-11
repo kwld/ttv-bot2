@@ -1,9 +1,9 @@
 
 {
-  "timestamp": "2023-10-27T13:30:00.000Z",
-  "session_summary": "Removed AI prompting from commit script.",
-  "technical_details": "Refactored scripts/smart-commit.js to remove @google/genai dependency. The script now reads the existing AI_SUMMARY.json file and constructs the commit message directly from the 'session_summary' and 'technical_details' fields, ensuring deterministic commit messages based on the AI's previous output.",
+  "timestamp": "2023-10-27T13:45:00.000Z",
+  "session_summary": "Fixed deployment script image naming issue.",
+  "technical_details": "Modified scripts/deploy.js to include multiple image name variations (dashes, underscores, localhost prefix) in the cleanup step. This prevents 'image not known' errors when deploying with Podman vs Docker, as they handle image tagging differently.",
   "files_changed": [
-    "scripts/smart-commit.js"
+    "scripts/deploy.js"
   ]
 }

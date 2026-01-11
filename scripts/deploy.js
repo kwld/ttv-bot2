@@ -140,15 +140,23 @@ async function run() {
         // 8. Remote Docker Execution
         console.log('\n🐳 Executing remote container commands...');
 
-        const appImage = 'gemini-bot-app';
-        const gatewayImage = 'gemini-bot-gateway';
+        // Handle both naming conventions (Docker uses dashes, Podman often uses underscores and localhost prefix)
+        // This prevents "image not known" errors during cleanup if the container engine names them differently.
+        const imagesToPrune = [
+            'gemini-bot-app', 
+            'gemini-bot-gateway',
+            'gemini-bot_app', 
+            'gemini-bot_gateway',
+            'localhost/gemini-bot_app', 
+            'localhost/gemini-bot_gateway'
+        ].join(' ');
         
         // Deployment Commands
         const deployCmds = [
             `cd ${remoteDir}`,
             `${composeCmd} down`,
             // Try to remove images, ignore error if they don't exist
-            `${tool} rmi ${appImage} ${gatewayImage} || true`, 
+            `${tool} rmi ${imagesToPrune} || true`, 
             `${composeCmd} up -d --build`
         ];
 
