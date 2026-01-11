@@ -1,8 +1,8 @@
 {
-  "timestamp": "2025-05-18T11:15:00.000Z",
-  "session_summary": "Update AiBuilder.js with new node types and variable syntax logic.",
-  "technical_details": "Updated the `SYSTEM_INSTRUCTION` in `server/services/AiBuilder.js` to include support for `.join()`, `CREATE_LIST`, `JOIN_STRING`, `WAIT_FOR_KEYWORD` (voting mode), and other recent engine improvements. This ensures the AI generates up-to-date JSON flows.",
+  "timestamp": "2025-05-18T11:20:00.000Z",
+  "session_summary": "Updated README documentation and AI System Prompt instructions.",
+  "technical_details": "Refined the 'Change Tracking' section in README.md to instruct the AI to use cumulative logic for AI_SUMMARY.json updates unless the prompt starts with 'NEW'. Also updated the Node Reference table to include all currently implemented node types from `plugins/definitions.ts`.",
   "files_changed": [
-    "server/services/AiBuilder.js"
+    "README.md"
   ]
 }
