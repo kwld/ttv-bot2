@@ -17,6 +17,22 @@ import { addLog, logs } from './logger.js'; // Import Logger
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// --- LOAD EXTERNAL CONFIG (Docker Mount) ---
+const EXTERNAL_CONFIG_PATH = '/app/config.json';
+if (fs.existsSync(EXTERNAL_CONFIG_PATH)) {
+    try {
+        console.log(`📝 Loading external configuration from ${EXTERNAL_CONFIG_PATH}...`);
+        const extConfig = JSON.parse(fs.readFileSync(EXTERNAL_CONFIG_PATH, 'utf8'));
+        // Overlay external config onto process.env
+        Object.keys(extConfig).forEach(key => {
+            process.env[key] = extConfig[key];
+        });
+        console.log('✅ Configuration loaded successfully.');
+    } catch (e) {
+        console.error('❌ Failed to load external configuration:', e.message);
+    }
+}
+
 // FIX: Suppress TMI.js Deprecation Warning (DEP0060)
 const originalEmitWarning = process.emitWarning;
 process.emitWarning = (warning, ...args) => {

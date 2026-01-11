@@ -70,21 +70,15 @@ try {
             recursive: true,
             filter: (src) => {
                 const rel = path.relative(GATEWAY_SRC, src);
-                // Basic exclusions
                 if (src.includes('node_modules') || src.includes('.env') || src.includes('docker-data') || src.includes('mongo-data') || src.includes('.git')) {
                     return false;
                 }
-                
-                // Exclude Client Source (The build output is in 'public', source 'client' folder is not needed in prod)
                 if (rel.startsWith('client') || rel.startsWith('cli')) {
                     return false;
                 }
-
-                // Exclude Dev Scripts
                 if (rel === 'create-dockerfile.js' || rel === 'create-env-example.js') {
                     return false;
                 }
-
                 return true;
             }
         });
@@ -113,15 +107,12 @@ CMD ["node", "server/server.js"]
     // 5. Extract Dependencies & Generate App Dockerfile
     console.log('📝 Reading server dependencies...');
     let installDepsCommand = 'npm install';
-    
     try {
         const serverPkg = JSON.parse(fs.readFileSync(path.join(SERVER_SRC, 'package.json'), 'utf8'));
         if (serverPkg.dependencies) {
-            // Install packages without version specifiers to get the latest versions
             const deps = Object.keys(serverPkg.dependencies).join(' ');
             if (deps) {
                 installDepsCommand = `npm install ${deps}`;
-                console.log(`   Found dependencies (installing latest): ${deps}`);
             }
         }
     } catch (e) {
@@ -129,7 +120,6 @@ CMD ["node", "server/server.js"]
     }
 
     console.log('📝 Generating App Dockerfile...');
-    
     const dockerfileContent = `
 # Use latest Node.js image
 FROM node:alpine
@@ -158,7 +148,6 @@ EXPOSE 3001
 # Start the server
 CMD ["node", "server/server.js"]
 `;
-
     fs.writeFileSync(path.join(OUTPUT_DIR, 'Dockerfile'), dockerfileContent.trim());
 
     // 6. Generate compose.yaml
@@ -182,22 +171,13 @@ services:
     ports:
       - "8080:8080" # WS
       - "3000:3000" # HTTP Admin
+    volumes:
+      # Mount external config read-only
+      - \${HOST_CONFIG_PATH:-./.env.example}:/app/config.json:ro
     environment:
       - PORT=3000
       - WS_PORT=8080
       - MONGO_URI=mongodb://mongo:27017/twitch-gateway
-      # Secrets from host env
-      - GATEWAY_TOKEN=\${GATEWAY_TOKEN}
-      - TWITCH_CLIENT_ID=\${TWITCH_CLIENT_ID}
-      - TWITCH_CLIENT_SECRET=\${TWITCH_CLIENT_SECRET}
-      - TWITCH_WEBHOOK_SECRET=\${TWITCH_WEBHOOK_SECRET}
-      # URL Configuration
-      - APP_PUBLIC_URL=\${APP_PUBLIC_URL}
-      - BASE_URL=\${APP_PUBLIC_URL}
-      - GATEWAY_PUBLIC_URL=\${GATEWAY_PUBLIC_URL}
-      # Auth
-      - ADMIN_PASSWORD=\${ADMIN_PASSWORD}
-      - SESSION_SECRET=\${SESSION_SECRET}
     depends_on:
       - mongo
     networks:
@@ -208,20 +188,13 @@ services:
     restart: always
     ports:
       - "3001:3001"
+    volumes:
+      # Mount external config read-only
+      - \${HOST_CONFIG_PATH:-./.env.example}:/app/config.json:ro
     environment:
       - PORT=3001
       - MONGO_URI=mongodb://mongo:27017/gemini-bot
       - GATEWAY_URL=\${GATEWAY_URL:-ws://gateway:8080}
-      - GATEWAY_TOKEN=\${GATEWAY_TOKEN}
-      - API_KEY=\${API_KEY}
-      - TWITCH_CLIENT_ID=\${TWITCH_CLIENT_ID}
-      - TWITCH_CLIENT_SECRET=\${TWITCH_CLIENT_SECRET}
-      # URL Configuration
-      - BASE_URL=\${APP_PUBLIC_URL}
-      - REDIRECT_URI=\${REDIRECT_URI}
-      # Admin
-      - SUPER_USER_TWITCH_ID=\${SUPER_USER_TWITCH_ID}
-      - SUPER_USER_PASSWORD=\${SUPER_USER_PASSWORD}
     depends_on:
       - mongo
       - gateway
@@ -247,6 +220,8 @@ echo "♻️  Rebuilding Gemini Bot..."
 ${cmdPrefix} down
 ${tool} rmi gemini-bot-app gemini-bot-gateway || true
 ${cmdPrefix} up -d --build
+echo "🧹 Pruning old images..."
+${tool} image prune -f
 echo "✅ Done! Logs:"
 ${cmdPrefix} logs -f app
 `;
@@ -259,6 +234,8 @@ echo ♻️  Rebuilding Gemini Bot...
 call ${cmdPrefix} down
 call ${tool} rmi gemini-bot-app gemini-bot-gateway
 call ${cmdPrefix} up -d --build
+echo 🧹 Pruning old images...
+call ${tool} image prune -f
 echo ✅ Done! Following logs (Ctrl+C to exit)...
 call ${cmdPrefix} logs -f app
 `;
@@ -266,40 +243,11 @@ call ${cmdPrefix} logs -f app
 
 
     // 8. Generate .env.example
-    console.log('📝 Generating .env.example...');
+    console.log('📝 Generating .env.example (for reference)...');
     const envExample = `
-# MongoDB Connection (Internal)
-MONGO_URI=mongodb://mongo:27017/gemini-bot
-
-# Twitch Credentials (Required)
-TWITCH_CLIENT_ID=your_client_id
-TWITCH_CLIENT_SECRET=your_client_secret
-TWITCH_WEBHOOK_SECRET=random_string_for_signing_webhooks
-
-# Gemini API Key (Required for AI features)
-API_KEY=your_gemini_key
-
-# Gateway Configuration
-GATEWAY_TOKEN=generate_a_secure_random_string_here
-
-# URL Configuration
-# APP_PUBLIC_URL: The URL to access the main application (e.g. https://bot.example.com)
-APP_PUBLIC_URL=http://localhost:3001
-
-# GATEWAY_PUBLIC_URL: The URL for Twitch EventSub Webhooks (e.g. https://gateway.example.com)
-# Must be accessible from the internet over HTTPS for Twitch webhooks to work.
-GATEWAY_PUBLIC_URL=https://your-public-gateway-url.com
-
-# OAuth Redirect URI
-# The full URL where Twitch will redirect users after authentication.
-# Typically: \${APP_PUBLIC_URL}/auth/callback
-REDIRECT_URI=http://localhost:3001/auth/callback
-
-# Admin Credentials
-SUPER_USER_TWITCH_ID=your_numeric_twitch_id
-SUPER_USER_PASSWORD=your_app_admin_password
-ADMIN_PASSWORD=your_gateway_admin_password
-SESSION_SECRET=random_session_secret
+# HOST_CONFIG_PATH tells Docker where to find your config.json file on the host.
+# The deploy script usually sets this automatically in .env
+HOST_CONFIG_PATH=/etc/gemini-bot/config.json
 `;
     fs.writeFileSync(path.join(OUTPUT_DIR, '.env.example'), envExample.trim());
 
@@ -308,14 +256,14 @@ SESSION_SECRET=random_session_secret
     console.log(`\n✅ Build files prepared successfully in: ${OUTPUT_DIR}`);
     console.log(`\n👉 To deploy to your server:`);
     console.log(`   1. Copy the folder '${path.basename(OUTPUT_DIR)}' to your server.`);
-    console.log(`   2. Run 'cp .env.example .env' inside that folder.`);
-    console.log(`   3. Edit '.env' with your real API keys and URLs.`);
+    console.log(`   2. Ensure '/etc/gemini-bot/config.json' exists on the server with your secrets.`);
+    console.log(`   3. Create a '.env' file in the folder with 'HOST_CONFIG_PATH=/etc/gemini-bot/config.json'.`);
     console.log(`   4. Run the application stack:`);
     
     if (tool === 'docker') {
         console.log(`      docker compose up -d --build`);
     } else {
-        console.log(`      podman-compose down  (optional: cleanup old state)`);
+        console.log(`      podman-compose down`);
         console.log(`      podman-compose up -d --build`);
     }
     console.log(`\n   ℹ️  Use './rebuild.sh' (Linux) or 'rebuild.bat' (Windows) to quickly update and restart.\n`);

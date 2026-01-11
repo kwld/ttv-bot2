@@ -1,8 +1,8 @@
 
-import { Command, ChatMessage, User, UserEntity, Provider, ServerProcess, ServerHistoryItem, RepoCommand } from '../types';
-import { NodeStatus } from './flowEngine';
+import { Command, ChatMessage, User, UserEntity, Provider, ServerProcess, ServerHistoryItem, RepoCommand } from '../../types.js';
+import { NodeStatus } from './flowEngine.js';
 import { FlowExecutor } from '../server/services/engine/FlowExecutor.js';
-import { generateUUID } from '../utils/helpers';
+import { generateUUID } from '../utils/helpers.js';
 
 type ServerMessageType = 
   | 'AUTH'
@@ -130,6 +130,7 @@ export class ServerBridge {
              return;
         }
         if (this.socket.readyState === WebSocket.CONNECTING) return;
+        // Cleanup zombie socket if any
         this.socket.onclose = null;
         this.socket.onerror = null;
         this.socket.close();
@@ -142,11 +143,24 @@ export class ServerBridge {
     let targetUrl = '';
     try {
         let base = this.url.trim();
+
+        // Handle websocket protocol prefixes in config by normalizing to http/https base
+        if (base.startsWith('ws://')) base = base.replace('ws://', 'http://');
+        if (base.startsWith('wss://')) base = base.replace('wss://', 'https://');
+        
         if (!base.match(/^[a-zA-Z]+:\/\//)) base = 'http://' + base;
         
         const urlObj = new URL(base);
+        
         // Force WS for HTTP, WSS for HTTPS
-        urlObj.protocol = urlObj.protocol === 'https:' ? 'wss:' : 'ws:';
+        // SECURITY FIX: If current page is HTTPS, we MUST use WSS to avoid Mixed Content errors.
+        const isSecureContext = typeof window !== 'undefined' && window.location.protocol === 'https:';
+        
+        if (isSecureContext) {
+            urlObj.protocol = 'wss:';
+        } else {
+            urlObj.protocol = urlObj.protocol === 'https:' ? 'wss:' : 'ws:';
+        }
         
         if (this.token) urlObj.searchParams.set('token', this.token);
         targetUrl = urlObj.toString();
@@ -160,46 +174,45 @@ export class ServerBridge {
         return;
     }
 
+    // Removed the timeout to start immediately, letting the browser handle connection queue
+    // This helps prevent double-socket creation race conditions
     try {
-        setTimeout(() => {
-            if (this.socket) return;
-            this.socket = new WebSocket(targetUrl);
+        this.socket = new WebSocket(targetUrl);
+        
+        this.socket.onopen = () => {
+            this.isConnected = true;
+            this.reconnectDelay = 1000;
+            this.onConnectionChange(true);
+            this.startHeartbeat();
             
-            this.socket.onopen = () => {
-                this.isConnected = true;
-                this.reconnectDelay = 1000;
-                this.onConnectionChange(true);
-                this.startHeartbeat();
-                
-                if (this.reconnectTimer) {
-                    clearTimeout(this.reconnectTimer);
-                    this.reconnectTimer = null;
-                }
-                if (this.token) this.send('AUTH', { token: this.token });
-            };
+            if (this.reconnectTimer) {
+                clearTimeout(this.reconnectTimer);
+                this.reconnectTimer = null;
+            }
+            if (this.token) this.send('AUTH', { token: this.token });
+        };
 
-            this.socket.onclose = (event) => {
-                this.isConnected = false;
-                this.onConnectionChange(false);
-                this.cleanupHeartbeat();
-                this.socket = null;
-                if (!this.isManualDisconnect) {
-                    console.log(`[ServerBridge] Connection closed. Retry in ${this.reconnectDelay}ms`);
-                    const delay = this.reconnectDelay;
-                    this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, 30000);
-                    this.reconnectTimer = setTimeout(() => this.connect(), delay);
-                }
-            };
+        this.socket.onclose = (event) => {
+            this.isConnected = false;
+            this.onConnectionChange(false);
+            this.cleanupHeartbeat();
+            this.socket = null;
+            if (!this.isManualDisconnect) {
+                console.log(`[ServerBridge] Connection closed. Retry in ${this.reconnectDelay}ms`);
+                const delay = this.reconnectDelay;
+                this.reconnectDelay = Math.min(this.reconnectDelay * 1.5, 30000);
+                this.reconnectTimer = setTimeout(() => this.connect(), delay);
+            }
+        };
 
-            this.socket.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data) as ServerMessage;
-                    this.handleMessage(data);
-                } catch (e) {
-                    console.warn('[ServerBridge] Invalid message received', event.data);
-                }
-            };
-        }, 50);
+        this.socket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data) as ServerMessage;
+                this.handleMessage(data);
+            } catch (e) {
+                console.warn('[ServerBridge] Invalid message received', event.data);
+            }
+        };
     } catch (e) {
         console.error("[ServerBridge] Connection failed immediately", e);
     }
@@ -254,8 +267,11 @@ export class ServerBridge {
       }
       this.cleanupHeartbeat();
       if (this.socket) {
+          // Remove listeners to prevent "close" event from triggering reconnect
           this.socket.onclose = null; 
           this.socket.onerror = null;
+          this.socket.onmessage = null;
+          this.socket.onopen = null;
           this.socket.close();
           this.socket = null;
       }

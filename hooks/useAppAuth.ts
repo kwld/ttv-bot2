@@ -7,8 +7,17 @@ import { MOCK_USERS } from '../mockUsers';
 export const useAppAuth = (activeChannelMode: string) => {
   const [botToken, setBotToken] = useState<string | null>(() => localStorage.getItem('gemini_bot_token'));
   const [serverUrl, setServerUrl] = useState(() => {
-      const stored = localStorage.getItem('GEMINI_SERVER_URL');
+      let stored = localStorage.getItem('GEMINI_SERVER_URL');
+      
+      // Fix for Mixed Content: If running on HTTPS, force stored HTTP URL to HTTPS (unless localhost)
+      if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+          if (stored && stored.startsWith('http:') && !stored.includes('localhost') && !stored.includes('127.0.0.1')) {
+              stored = stored.replace(/^http:/, 'https:');
+          }
+      }
+
       if (stored) return stored;
+      
       // In production (served from same origin), default to origin if not localhost dev
       if (typeof window !== 'undefined' && !window.location.host.includes('localhost:5173')) {
           return window.location.origin;

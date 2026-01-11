@@ -287,6 +287,9 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
       triggerIndex: number;
   }>({ isActive: false, type: null, query: '', activeIndex: 0, triggerIndex: -1 });
 
+  // Placeholder State
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+
   // Formatting helpers for circular progress
   const formatTime = (seconds: number) => {
       const m = Math.floor(seconds / 60);
@@ -299,6 +302,15 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
   const progressOffset = progressCircumference * (1 - ((emoteRefreshCooldown || 0) / 3600));
 
   const activeCommands = useMemo(() => commands.filter(c => c.enabled && (c.channelId === activeChannel.id || c.channelId === 'any')), [commands, activeChannel.id]);
+
+  // Cycle placeholder
+  useEffect(() => {
+      if (activeCommands.length <= 1) return;
+      const interval = setInterval(() => {
+          setPlaceholderIndex(prev => (prev + 1) % activeCommands.length);
+      }, 4000);
+      return () => clearInterval(interval);
+  }, [activeCommands.length]);
 
   // Compute unique users for autocomplete
   const uniqueUsers = useMemo(() => {
@@ -532,18 +544,18 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
           return t('chat.placeholder_no_commands');
       }
       
-      // List multiple commands in placeholder
-      const triggers = activeCommands
-          .map(c => c.rootAction.settings.triggers?.split(',')[0]?.trim())
-          .filter(Boolean)
-          .slice(0, 5); // Show first 5
-      
-      if (triggers.length > 0) {
-          return `💡 ${t('chat.try_typing')} ${triggers.join(', ')}...`;
+      // Cycling command placeholder
+      const cmd = activeCommands[placeholderIndex];
+      if (cmd) {
+          const triggers = cmd.rootAction.settings.triggers?.split(',');
+          const mainTrigger = triggers?.[0]?.trim();
+          if (mainTrigger) {
+              return `💡 ${t('chat.try_typing')} ${mainTrigger} ${cmd.name ? `(${cmd.name})` : ''}`;
+          }
       }
       
-      return t('chat.placeholder_default'); // Fallback
-  }, [isReadOnly, activeCommands, commands, t, isTwitchConnected, isChatEnabled, isConflictDisabled, activeChannel.id]);
+      return t('chat.placeholder_default'); 
+  }, [isReadOnly, activeCommands, commands, t, isTwitchConnected, isChatEnabled, isConflictDisabled, activeChannel.id, placeholderIndex]);
 
   const allCommandsTooltip = useMemo(() => {
       return activeCommands.map(c => c.rootAction.settings.triggers?.split(',')[0]).filter(Boolean).join(', ');
@@ -1005,7 +1017,8 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
                               setInputText(prev => prev.trim() ? `${trigger} ${prev}` : `${trigger} `);
                               inputRef.current?.focus();
                           }}
-                          className="flex-shrink-0 px-2.5 py-1 rounded-lg bg-[#2d3446]/50 hover:bg-indigo-600/20 border border-slate-700 hover:border-indigo-500/50 text-[10px] font-mono font-bold text-slate-400 hover:text-indigo-300 transition-all active:scale-95"
+                          title={cmd.name}
+                          className="flex-shrink-0 px-2.5 py-1 rounded-lg bg-[#2d3446]/50 hover:bg-indigo-600/20 border border-slate-700 hover:border-indigo-500/50 text-[10px] font-mono font-bold text-slate-400 hover:text-indigo-300 transition-all active:scale-95 whitespace-nowrap"
                       >
                           {trigger}
                       </button>

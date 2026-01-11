@@ -18,6 +18,22 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// --- LOAD EXTERNAL CONFIG (Docker Mount) ---
+const EXTERNAL_CONFIG_PATH = '/app/config.json';
+if (fs.existsSync(EXTERNAL_CONFIG_PATH)) {
+    try {
+        console.log(`📝 Loading external configuration from ${EXTERNAL_CONFIG_PATH}...`);
+        const extConfig = JSON.parse(fs.readFileSync(EXTERNAL_CONFIG_PATH, 'utf8'));
+        // Overlay external config onto process.env
+        Object.keys(extConfig).forEach(key => {
+            process.env[key] = extConfig[key];
+        });
+        console.log('✅ Configuration loaded successfully.');
+    } catch (e) {
+        console.error('❌ Failed to load external configuration:', e.message);
+    }
+}
+
 const PORT = parseInt(process.env.PORT || '3001');
 const app = express();
 
@@ -27,10 +43,10 @@ app.use(express.json({ limit: '10mb' }));
 
 // Startup Check
 if (!process.env.SUPER_USER_TWITCH_ID || !process.env.SUPER_USER_PASSWORD) {
-    console.warn("⚠️  WARNING: SUPER_USER_TWITCH_ID or SUPER_USER_PASSWORD not set in .env.");
+    console.warn("⚠️  WARNING: SUPER_USER_TWITCH_ID or SUPER_USER_PASSWORD not set.");
     console.warn("   You will not be able to log in to the /admin panel.");
 } else {
-    console.log("✅ Admin Credentials Loaded from .env");
+    console.log("✅ Admin Credentials Loaded");
 }
 
 const init = async () => {
