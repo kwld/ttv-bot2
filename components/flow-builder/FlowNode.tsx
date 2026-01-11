@@ -458,7 +458,7 @@ const FlowNode: React.FC<FlowNodeProps> = ({
                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">{t('config_editor.section_constants')}</span>
                    <i className="fas fa-sliders-h text-slate-600 text-[10px]"></i>
                </div>
-               {Object.values(commandStaticDefinitions).map((def) => {
+               {Object.values(commandStaticDefinitions).map((def: VariableDefinition) => {
                    const val = commandStaticVars?.[def.key] ?? '';
                    
                    if (def.type === 'slider') {

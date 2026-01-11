@@ -1,0 +1,9 @@
+{
+    "host": "your.server.ip",
+    "port": 22,
+    "username": "root",
+    "privateKeyPath": "/Users/you/.ssh/id_rsa",
+    "password": "", 
+    "remotePath": "/opt/gemini-bot",
+    "defaultTool": "docker"
+}

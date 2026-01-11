@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState, MutableRefObject, useCallback } from 'react';
 import { TwitchChatClient, TwitchMessage, TwitchUserNotice, fetchLiveStreams } from '../services/twitchService';
 import { Channel, ActivityNotification, User, Provider } from '../types';
@@ -281,7 +282,7 @@ export const useTwitchClient = ({
                 });
                 const ch = channelsRef.current.find(c => c.name.toLowerCase() === lowerChannel);
                 if (ch) {
-                    const msgId = (notice.tags['msg-id'] as unknown as string) || 'NOTICE';
+                    const msgId = notice.tags['msg-id'] || 'NOTICE';
                     addBotMessage(`[${msgId.toUpperCase()}] ${notice.message || ''}`, 'twitch', ch.id, false, true, { level: 'info' });
                 }
             },

@@ -32,3 +32,6 @@ dist-ssr
 # Bot Credentials
 bot-credentials.json
 **/bot-credentials.json
+
+# Deployment Config
+deploy.config.json
