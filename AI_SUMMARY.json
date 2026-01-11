@@ -1,9 +1,8 @@
-
 {
-  "timestamp": "2023-10-27T13:45:00.000Z",
-  "session_summary": "Fixed deployment script image naming issue.",
-  "technical_details": "Modified scripts/deploy.js to include multiple image name variations (dashes, underscores, localhost prefix) in the cleanup step. This prevents 'image not known' errors when deploying with Podman vs Docker, as they handle image tagging differently.",
+  "timestamp": "2023-10-27T14:00:00.000Z",
+  "session_summary": "Updated AI Developer Prompt in README.",
+  "technical_details": "Updated the System Prompt section in README.md to explicitly enforce full file generation, context preservation during edits, and the use of the 'NEW' keyword trigger for fresh file creation to prevent partial code output issues.",
   "files_changed": [
-    "scripts/deploy.js"
+    "README.md"
   ]
 }

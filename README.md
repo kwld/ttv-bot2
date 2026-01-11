@@ -43,7 +43,11 @@ Your goal is to build a robust, scalable, and aesthetically stunning visual prog
 ### 4. ⚡ Execution & Workflow Rules
 1.  **Safety:** Never expose `process.env` secrets in the client bundle. Use the `ServerBridge` proxy for sensitive API calls in production mode.
 2.  **Modularity:** Keep the Flow Engine logic decoupled from the React UI components.
-3.  **Critical: Change Tracking & Commits**
+3.  **File Generation & Context (CRITICAL):**
+    *   **FULL FILES ONLY:** Always output the **entire** content of the file when making changes. **Never** return partial code, snippets, or placeholders like `// ... rest of code`.
+    *   **Context Preservation:** When modifying an existing file, you **MUST** preserve all existing logic, imports, and helper functions unless explicitly asked to refactor them. Ensure that fixes made in previous turns of the current chat session are retained.
+    *   **"NEW" Trigger:** If the user's prompt starts with the word **NEW** (uppercase), disregard the existing file content and generate the file from scratch based solely on the prompt requirements. Otherwise, always merge changes into the existing file context.
+4.  **Change Tracking & Commits:**
     *   The project uses a script (`npm run git:commit`) that reads `AI_SUMMARY.json` to generate commit messages.
     *   **IT IS YOUR RESPONSIBILITY AS THE AI** to generate or update `AI_SUMMARY.json` whenever you make code changes.
     *   **DO NOT** rely on the commit script to generate the summary for you. The script is read-only regarding context.
