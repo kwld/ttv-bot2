@@ -1,5 +1,6 @@
 
 
+
 import { ActionType } from '../../types.js';
 import { VariableResolver } from './VariableResolver.js';
 import { GoogleGenAI } from "@google/genai";
@@ -421,7 +422,10 @@ export class FlowExecutor {
           case ActionType.CREATE_LIST: {
              const input = VariableResolver.resolve(action.settings.input || '', context, this.activeTargets);
              const separator = action.settings.separator || ',';
-             const list = input.split(separator).map(s => s.trim()).filter(s => s !== '');
+             
+             // Ensure we deal with a string input for splitting
+             const inputStr = typeof input === 'string' ? input : String(input);
+             const list = inputStr.split(separator).map(s => s.trim()).filter(s => s !== '');
              
              const resultVar = action.settings.resultVar || 'myList';
              context.variables[resultVar] = list;

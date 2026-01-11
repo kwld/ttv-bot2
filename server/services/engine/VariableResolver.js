@@ -1,6 +1,10 @@
 
 
 
+
+
+
+
 export class VariableResolver {
   
   static getNestedValue(path, context, activeTargets) {
@@ -62,6 +66,12 @@ export class VariableResolver {
       if (current !== null && current !== undefined && typeof current === 'object') {
           // Array handling with extended syntax
           if (Array.isArray(current)) {
+              // Handle 'all': args.all -> joins with space
+              if (part === 'all') {
+                  current = current.join(' ');
+                  continue;
+              }
+
               // Handle 'last' keyword: args.last
               if (part === 'last') {
                   current = current.length > 0 ? current[current.length - 1] : null;
@@ -204,6 +214,23 @@ export class VariableResolver {
         }
 
         const path = content.trim(); 
+
+        // --- NEW: Detect .join('separator') syntax ---
+        // Regex looks for: something.join('sep') or .join("sep")
+        const joinMatch = path.match(/^(.+?)\.join\((['"])(.*?)\2\)$/);
+        
+        if (joinMatch) {
+            const varPath = joinMatch[1];
+            const separator = joinMatch[3];
+            const val = this.getNestedValue(varPath, context, activeTargets);
+            
+            if (Array.isArray(val)) {
+                changed = true;
+                return val.join(separator);
+            }
+        }
+        // ---------------------------------------------
+
         const val = this.getNestedValue(path, context, activeTargets);
         
         if (val === null || val === undefined) {
@@ -220,7 +247,7 @@ export class VariableResolver {
                return val.map(v => {
                    if (v && typeof v === 'object' && v.displayName) return v.displayName;
                    return String(v);
-               }).join(' '); // CHANGED: Join with space instead of comma
+               }).join(' '); // Default space join for legacy compat
            }
            return typeof val === 'object' ? (val.displayName || JSON.stringify(val)) : String(val);
         }

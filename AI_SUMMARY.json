@@ -1,6 +1,8 @@
 {
-  "timestamp": "2025-05-18T10:00:00.000Z",
-  "session_summary": "Fixed TypeScript error in useTwitchClient hook.",
-  "technical_details": "Changed catch clause variable type from 'unknown' to 'any' in fetchLiveStreams error handling within hooks/useTwitchClient.ts to resolve TS error 'Argument of type unknown is not assignable to parameter of type string'.",
-  "files_changed": ["hooks/useTwitchClient.ts"]
+  "timestamp": "2025-05-18T11:15:00.000Z",
+  "session_summary": "Update AiBuilder.js with new node types and variable syntax logic.",
+  "technical_details": "Updated the `SYSTEM_INSTRUCTION` in `server/services/AiBuilder.js` to include support for `.join()`, `CREATE_LIST`, `JOIN_STRING`, `WAIT_FOR_KEYWORD` (voting mode), and other recent engine improvements. This ensures the AI generates up-to-date JSON flows.",
+  "files_changed": [
+    "server/services/AiBuilder.js"
+  ]
 }

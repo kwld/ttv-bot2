@@ -1,6 +1,8 @@
 
 
 
+
+
 import { GoogleGenAI } from "@google/genai";
 import { ActionType } from '../types.js';
 
@@ -23,16 +25,22 @@ export class AiBuilder {
         "Gemini Bot Flow Studio" is a high-end, node-based visual programming environment for Twitch bots.
         It uses a flow-based architecture where execution moves from a START node through various Logic, Action, and Data nodes.
 
-        **Key Concepts:**
-        1. **Variables**: Accessed via \`{variableName}\`. 
+        **1. Variables & Syntax:** 
+           - Access: \`{variableName}\`.
            - System: \`{sender.displayName}\`, \`{sender.points}\`, \`{channel.currencySymbol}\`.
-           - Arguments: \`{args.0}\` (1st arg), \`{args.1}\`, \`{args.all}\`.
-           - Time: \`{datetime.time}\`.
-        2. **Coordinates**: You MUST calculate \`position\` {x, y} for every node to layout them visually.
+           - Arguments: \`{args.0}\` (1st word), \`{args.all}\` (all words), \`{args.length}\` (count).
+           - **NEW - List Formatting:** \`{myList.join(', ')}\` (Joins array with separator).
+           - **NEW - List Size:** \`{myList.length}\`.
+
+        **2. Coordinates & Layout:**
+           - You **MUST** calculate \`position\` {x, y} for every node.
            - Start at x:50, y:50.
            - Flow moves RIGHT (increase X by 400).
-           - Branches move DOWN (increase Y by 350). Do not stack nodes on top of each other.
-        3. **Error Handling**: Many nodes have an \`errorChildren\` array for handling failures (e.g., User Not Found).
+           - Branches/Errors move DOWN (increase Y by 350).
+           - **DO NOT** stack nodes on top of each other. Keep the graph readable.
+
+        **3. Error Handling:** 
+           - Nodes like \`POINTS_MODIFY\` or \`FETCH_API\` have an \`errorChildren\` array. Use it for user feedback (e.g., "Not enough points").
 
         ### OUTPUT FORMAT
         Return a SINGLE JSON object representing a 'Command'.
@@ -57,19 +65,21 @@ export class AiBuilder {
            - settings: { "triggers": "!cmd, !alias", "onlyOnline": boolean }
 
         2. **SAY** (Chat Message)
-           - settings: { "message": "Hello @{sender.displayName}! You have {userPoints} points." }
+           - settings: { "message": "Hello @{sender.displayName}! Result: {myList.join(', ')}" }
 
         3. **AI_CHAT** (LLM Generation)
            - settings: { 
-               "prompt": "Question: {args}", 
+               "prompt": "Question: {args.all}", 
                "systemInstruction": "Persona...", 
                "resultVar": "ai_response",
                "model": "Gemini Flash",
-               "useMemory": true
+               "useMemory": true,
+               "includeContext": true
              }
            
         4. **POINTS_GET** (Fetch Balance)
            - settings: { "target": "@{sender}", "resultVar": "userPoints" }
+           - Returns: \`{userPoints}\` (number), \`{targetUser}\` (user object).
         
         5. **POINTS_MODIFY** (Transaction)
            - settings: { "target": "@{sender}", "amount": "100", "operation": "add" | "remove" | "set" }
@@ -85,6 +95,7 @@ export class AiBuilder {
                ]
              }
            - Use 'branches' object: { "cond_1": [...], "ELSE": [...] }
+           - Operators: ==, !=, >, <, >=, <=, contains.
 
         8. **RANDOM_NUMBER** (RNG)
            - settings: { "min": "1", "max": "100", "resultVar": "roll" }
@@ -92,8 +103,16 @@ export class AiBuilder {
         9. **WAIT** (Delay)
            - settings: { "duration": "5" }
 
-        10. **WAIT_FOR_KEYWORD** (Input Collection)
-           - settings: { "keyword": "join", "duration": "30", "maxUsers": "0", "listVar": "participants" }
+        10. **WAIT_FOR_KEYWORD** (Input Collection / Voting)
+           - settings: { 
+               "keyword": "", // Empty = catch all (for voting) or specific word
+               "duration": "30", 
+               "enableVoting": true, // Set true for Polls
+               "validOptions": "{optionsList}", // Optional list variable to validate votes against
+               "voteResultVar": "results", 
+               "winnerVar": "winner",
+               "listVar": "participants"
+             }
 
         11. **RANDOM_PICK** (Select Winner)
             - settings: { "source": "{participants}", "resultVar": "winner" }
@@ -106,11 +125,27 @@ export class AiBuilder {
         
         14. **CREATE_LIST** (Split String)
            - settings: { "input": "{args.all}", "separator": ",", "resultVar": "myList" }
+           - Use this to parse arguments like "opt1, opt2, opt3".
+
+        15. **JOIN_STRING** (Format List)
+           - settings: { "list": "{myList}", "separator": ", ", "resultVar": "joinedString" }
+           
+        16. **HALT** (Stop Execution)
+           - settings: { "triggers": "!cmd_to_stop" }
+
+        17. **HANDLE_ERROR** (Try/Catch)
+           - settings: { "cases": [ { "id": "c1", "errorName": "USER_NOT_FOUND" } ] }
+           - Use 'branches' for cases.
 
         ### LOGIC PATTERNS (Best Practices)
         - **Gamble**: START -> POINTS_GET -> CONDITION (funds >= bet) -> (True: RANDOM_NUMBER -> CONDITION (win/loss) -> MODIFY) -> (False: SAY "Not enough points").
+        - **Vote/Poll**: 
+           1. START -> CREATE_LIST (input: {args.all}, separator: ",") -> result: {voteOptions}.
+           2. SAY "Vote started: {voteOptions.join(', ')}".
+           3. WAIT_FOR_KEYWORD (enableVoting: true, validOptions: {voteOptions}).
+           4. SAY "Winner: {winner}".
         - **Duel**: START -> CHECK_ARG (target exists) -> POINTS_GET (sender) -> POINTS_GET (target) -> SAY "Accept?" -> WAIT_FOR_USER_REPLY -> CONDITION (accepted) -> RNG -> MODIFY.
-        - **Raffle**: START -> SAY "Started" -> WAIT_FOR_KEYWORD -> RANDOM_PICK -> MODIFY (add prize) -> SAY "Winner is {winner}".
+        - **Raffle**: START -> SAY "Type !join" -> WAIT_FOR_KEYWORD (keyword: !join) -> RANDOM_PICK -> MODIFY (add prize) -> SAY "Winner is {winner.displayName}".
 
         ### REQUEST
         Create a command based on: "${userPrompt}"

@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -34,6 +36,8 @@ interface HierarchyNode {
     isIterator?: boolean;
     isTernary?: boolean; 
     isClose?: boolean;
+    isMethod?: boolean; // New Flag for Methods like .join()
+    cursorOffset?: number; // Cursor offset after insertion
     category?: 'system' | 'global' | 'node' | 'iterator';
     sourceNodeId?: string;   
 }
@@ -155,6 +159,58 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
 
       const nodesMap = new Map<string, HierarchyNode>();
 
+      // Special Injection for `args` methods and properties
+      if (relevantPrefix === 'args.' || (!prefixPath && 'args'.startsWith(currentSegmentFilter))) {
+          // If we are deep in args (e.g. args.join), assume join is valid
+          // OR if we are at root and just typed something that matches args
+          
+          if (relevantPrefix === 'args.') {
+              // Add array helper methods for args
+              if ('join'.startsWith(currentSegmentFilter)) {
+                  nodesMap.set('join', {
+                      key: 'join(...)',
+                      fullPath: `args.join(', ')`,
+                      isLeaf: true,
+                      hasChildren: false,
+                      description: 'Join arguments into string',
+                      category: 'system' as const,
+                      isMethod: true,
+                      cursorOffset: -2 // Moves cursor between quotes
+                  });
+              }
+
+              const createSlice = (k: string, desc: string) => ({
+                  key: k,
+                  fullPath: `args.${k}`,
+                  isLeaf: true,
+                  hasChildren: false,
+                  description: desc,
+                  category: 'system' as const
+              });
+              
+              if ('last'.includes(currentSegmentFilter)) nodesMap.set('last', createSlice('last', t('variables.var_arg_last')));
+              if ('0-last'.includes(currentSegmentFilter)) nodesMap.set('0-last', createSlice('0-last', t('variables.var_arg_all_text')));
+              if ('0-last-1'.includes(currentSegmentFilter)) nodesMap.set('0-last-1', createSlice('0-last-1', t('variables.var_arg_no_last')));
+              if ('1-last'.includes(currentSegmentFilter)) nodesMap.set('1-last', createSlice('1-last', t('variables.var_arg_tail')));
+          }
+      }
+
+      // General Join Suggestion for ANY array-like or if user is typing .join
+      // Logic: If there is a prefix, and the user types 'join', we suggest the join method on that prefix
+      if (relevantPrefix && 'join'.startsWith(currentSegmentFilter)) {
+           // We don't strictly know types, but we offer .join() if the user is typing it
+           nodesMap.set('join', {
+              key: 'join(...)',
+              fullPath: `${relevantPrefix}join(', ')`,
+              isLeaf: true,
+              hasChildren: false,
+              description: 'Format List (Array)',
+              category: 'system' as const,
+              isMethod: true,
+              cursorOffset: -2
+           });
+      }
+
       allFlatVariables.forEach(v => {
           if (v.val.startsWith(relevantPrefix)) {
               const remainder = v.val.substring(relevantPrefix.length);
@@ -193,26 +249,10 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
           }
       });
 
-      // Special Injection for `args.` array slicing logic
-      if (relevantPrefix === 'args.') {
-          const createSlice = (k: string, desc: string) => ({
-              key: k,
-              fullPath: `args.${k}`,
-              isLeaf: true,
-              hasChildren: false,
-              description: desc,
-              category: 'system' as const
-          });
-          
-          if ('last'.includes(currentSegmentFilter)) nodesMap.set('last', createSlice('last', t('variables.var_arg_last')));
-          if ('0-last'.includes(currentSegmentFilter)) nodesMap.set('0-last', createSlice('0-last', t('variables.var_arg_all_text')));
-          if ('0-last-1'.includes(currentSegmentFilter)) nodesMap.set('0-last-1', createSlice('0-last-1', t('variables.var_arg_no_last')));
-          if ('1-last'.includes(currentSegmentFilter)) nodesMap.set('1-last', createSlice('1-last', t('variables.var_arg_tail')));
-      }
-
       varNodes = Array.from(nodesMap.values()).sort((a, b) => {
           // Sort by category importance: Iterator -> Node -> System
           const score = (n: HierarchyNode) => {
+              if (n.isMethod) return -1; // Methods first
               if (n.isIterator) return 0;
               if (n.category === 'node') return 1;
               return 2;
@@ -355,11 +395,17 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
         newCursorPos = prefix.length + newContent.length;
     }
 
+    // Apply manual cursor offset (e.g. for .join(''))
+    if (node.cursorOffset) {
+        newCursorPos += node.cursorOffset;
+    }
+
     const fullVal = prefix + newContent + suffix;
     onChange(fullVal);
     
-    if (!node.isTernary && !node.isOperator && (node.hasChildren || node.isLeaf)) {
-        setFilterContext(newContent);
+    // Stop suggesting if it's a method or leaf (unless ternary/operator logic dictates otherwise)
+    if (node.isMethod || (!node.isTernary && !node.isOperator && node.isLeaf)) {
+        setShowSuggestions(false);
     } else if (node.isTernary) {
         setShowSuggestions(false);
     } else {
@@ -417,6 +463,7 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
 
   // Helper to determine badge colors
   const getBadgeColors = (node: HierarchyNode) => {
+      if (node.isMethod) return 'text-pink-400 bg-pink-500/10 border-pink-500/20';
       if (node.isIterator) return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
       if (node.category === 'node') return 'text-purple-400 bg-purple-500/10 border-purple-500/20';
       if (node.category === 'global') return 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20';
@@ -524,6 +571,7 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
                       {!isOp && !isClose && (
                           <>
                             {isIterator && <i className="fas fa-redo text-[10px] text-amber-500 mr-1"></i>}
+                            {node.isMethod && <i className="fas fa-code text-[10px] text-pink-400 mr-1"></i>}
                             <span className={`text-sm font-bold ${isActive ? 'text-white' : (isIterator ? 'text-amber-400' : 'text-slate-300')}`}>{node.key}</span>
                           </>
                       )}

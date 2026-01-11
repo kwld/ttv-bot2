@@ -1,4 +1,6 @@
 
+
+
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { Channel, Command, User, WaitingInfo, Provider, UserEntity } from '../types';
 import { FlowEngine, NodeStatus } from '../services/flowEngine';
@@ -199,17 +201,36 @@ export const useLocalEngine = ({
             if (info.channelId === matchingChannel.id) {
                 if (info.targetUserId && info.targetUserId !== user.id) continue;
 
-                const keywords = info.keyword ? info.keyword.split(',').map((k: string) => k.trim().toLowerCase()) : [];
-                const cleanTextLower = text.toLowerCase();
-                
+                const cleanTextLower = text.toLowerCase().trim();
                 let isMatch = false;
-                if (info.useRegex) {
-                    try {
-                        const regex = new RegExp(info.keyword, 'i');
-                        isMatch = regex.test(text);
-                    } catch (e) {}
+
+                // --- VOTING LOGIC ---
+                if (info.enableVoting) {
+                    if (info.validOptions && Array.isArray(info.validOptions) && info.validOptions.length > 0) {
+                        // Check against allowed options (case-insensitive)
+                        isMatch = info.validOptions.some((opt: any) => String(opt).toLowerCase().trim() === cleanTextLower);
+                    } else {
+                        // If no validOptions are enforced
+                        if (!info.keyword || info.keyword.trim() === '') {
+                             // Empty keyword in voting = Catch Everything
+                             isMatch = true;
+                        } else {
+                             // Fallback to keyword match
+                             const keywords = info.keyword.split(',').map((k: string) => k.trim().toLowerCase());
+                             isMatch = keywords.includes(cleanTextLower);
+                        }
+                    }
                 } else {
-                    isMatch = keywords.includes(cleanTextLower);
+                    // --- STANDARD WAIT LOGIC ---
+                    const keywords = info.keyword ? info.keyword.split(',').map((k: string) => k.trim().toLowerCase()) : [];
+                    if (info.useRegex) {
+                        try {
+                            const regex = new RegExp(info.keyword, 'i');
+                            isMatch = regex.test(text);
+                        } catch (e) {}
+                    } else {
+                        isMatch = keywords.includes(cleanTextLower);
+                    }
                 }
 
                 if (isMatch) { 
@@ -251,7 +272,7 @@ export const useLocalEngine = ({
                             engine.triggerReply(execId, { user, keyword: text });
                         }
                     }
-                    // Continue loop in case multiple flows wait for same keyword? Usually one consumes.
+                    // Consumed by Wait Node
                     return; 
                 }
             }

@@ -1,11 +1,12 @@
 
 
 
+
 export const CMD_VOTE_YAML = `
 id: mod-vote
 name: Głosowanie (Vote)
 category: Moderation
-version: '2.0'
+version: '2.2'
 provider: twitch
 channelId: sim_1
 enabled: false
@@ -93,7 +94,7 @@ rootAction:
                         - id: confirm-msg
                           type: SAY
                           settings:
-                            message: '📋 Przygotowano głosowanie na: {voteOptions}. Wpisz "start" aby rozpocząć lub "cancel" aby anulować.'
+                            message: "📋 Przygotowano głosowanie na: {voteOptions.join(', ')}. Wpisz 'start' aby rozpocząć lub 'cancel' aby anulować."
                           position:
                             x: 2140
                             y: 100
@@ -134,7 +135,7 @@ rootAction:
                                       - id: start-vote-msg
                                         type: SAY
                                         settings:
-                                          message: '🗳️ Głosowanie rozpoczęte! Wpisz jedną z opcji: {voteOptions} (Czas: 60s)'
+                                          message: "🗳️ Głosowanie rozpoczęte! Wpisz jedną z opcji: {voteOptions.join(', ')} (Czas: 60s)"
                                         position:
                                           x: 3260
                                           y: 100
@@ -183,7 +184,7 @@ rootAction:
                         - id: not-enough-options
                           type: SAY
                           settings:
-                            message: ⚠️ Podaj co najmniej dwie opcje oddzielone przecinkiem! Np. !createvote Pizza, Burger
+                            message: '⚠️ Błąd! Otrzymano {voteOptions.length} opcji (Input: "{args.all}"). Podaj co najmniej dwie opcje po przecinku! Np. !createvote Pizza, Burger'
                           position:
                             x: 2140
                             y: 360
