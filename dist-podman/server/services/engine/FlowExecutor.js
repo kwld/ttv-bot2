@@ -1,6 +1,8 @@
 
 
 
+
+
 import { ActionType } from '../../types.js';
 import { VariableResolver } from './VariableResolver.js';
 import { GoogleGenAI } from "@google/genai";
@@ -749,7 +751,8 @@ export class FlowExecutor {
                 executionId, 
                 startTime: Date.now(), 
                 label: enableVoting ? 'Voting' : 'Waiting',
-                enableVoting
+                enableVoting,
+                validOptions // Pass for client-side valid checks if needed
             };
             
             this.callbacks.onWaitingChange(waitingPayload, executionId);
@@ -797,7 +800,7 @@ export class FlowExecutor {
             if (enableVoting) {
                 // --- VOTING AGGREGATION LOGIC ---
                 const tally = {};
-                let winner = "None";
+                let candidates = [];
                 let maxVotes = -1;
                 let totalVotes = 0;
 
@@ -843,15 +846,18 @@ export class FlowExecutor {
 
                 if (totalVotes === 0) throw new Error("NO_VOTES");
 
-                // Determine Winner
+                // Determine Winner (Random Tie Break)
                 Object.entries(tally).forEach(([opt, count]) => {
                     if (count > maxVotes) {
                         maxVotes = count;
-                        winner = opt;
+                        candidates = [opt];
                     } else if (count === maxVotes) {
-                        winner += " & " + opt; // Tie
+                        candidates.push(opt);
                     }
                 });
+
+                // Pick random winner from tied candidates
+                const winner = candidates[Math.floor(Math.random() * candidates.length)];
 
                 const resultVar = action.settings.voteResultVar || 'voteResults';
                 const winnerVar = action.settings.winnerVar || 'winnerOption';

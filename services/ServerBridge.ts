@@ -112,7 +112,17 @@ export class ServerBridge {
   public onHistoryUpdate: (item: ServerHistoryItem) => void = () => {};
 
   constructor(url: string, token: string | null = null) {
-    this.url = url.endsWith('/') ? url.slice(0, -1) : url;
+    let processedUrl = url.endsWith('/') ? url.slice(0, -1) : url;
+
+    // Security Fix: Enforce HTTPS if client is on HTTPS to prevent Mixed Content errors
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+        if (processedUrl.startsWith('http:') && !processedUrl.includes('localhost') && !processedUrl.includes('127.0.0.1')) {
+            console.debug("[ServerBridge] Upgrading insecure URL to HTTPS to match client protocol.");
+            processedUrl = processedUrl.replace(/^http:/, 'https:');
+        }
+    }
+
+    this.url = processedUrl;
     this.token = token;
     ServerBridge.instance = this;
   }
@@ -143,7 +153,7 @@ export class ServerBridge {
     let targetUrl = '';
     try {
         let base = this.url.trim();
-
+        
         // Handle websocket protocol prefixes in config by normalizing to http/https base
         if (base.startsWith('ws://')) base = base.replace('ws://', 'http://');
         if (base.startsWith('wss://')) base = base.replace('wss://', 'https://');

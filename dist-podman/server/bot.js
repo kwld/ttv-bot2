@@ -1,6 +1,11 @@
 
 
 
+
+
+
+
+
 import fs from 'fs';
 import path from 'path';
 import mongoose from 'mongoose';
@@ -319,8 +324,12 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
             // --- VOTING LOGIC ---
             if (waitingData.enableVoting) {
                 if (waitingData.validOptions && Array.isArray(waitingData.validOptions) && waitingData.validOptions.length > 0) {
-                     // If allowed options exist, input MUST match one (case-insensitive)
+                     // CRITICAL FIX: Strict match if options are provided. Ignore anything else.
                      matched = waitingData.validOptions.some(opt => String(opt).toLowerCase().trim() === cleanTextLower);
+                     
+                     // If invalid option in strict voting mode, IGNORE completely.
+                     if (!matched) continue;
+
                 } else {
                      // No restrictions:
                      if (!waitingData.keyword || waitingData.keyword.trim() === '') {
@@ -346,6 +355,21 @@ export const handleBotMessage = async (event, forcedEventType = null) => {
                 if (!participants.has(executionId)) participants.set(executionId, []);
                 const currentList = participants.get(executionId);
                 
+                const existingIdx = currentList.findIndex(p => p.user.id === user.id);
+
+                if (existingIdx !== -1) {
+                    if (waitingData.enableVoting) {
+                         // Update Vote
+                         currentList[existingIdx].keyword = cleanMessage;
+                         broadcastToUser(channelOwnerId, { type: 'NODE_FLASH', payload: { nodeId: waitingData.actionId } });
+                         broadcastToUser(channelOwnerId, { 
+                            type: 'WAITING_UPDATE', 
+                            payload: { executionId, data: { ...waitingData, participantCount: currentList.length } } 
+                         });
+                    }
+                    return; // Consumed
+                }
+
                 if (!currentList.some(p => p.user.id === user.id)) {
                     currentList.push({ user: fullUser, keyword: cleanMessage });
                     

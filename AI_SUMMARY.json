@@ -1,8 +1,11 @@
+
 {
-  "timestamp": "2025-05-18T13:20:00.000Z",
-  "session_summary": "Fix YAML syntax error in Vote command.",
-  "technical_details": "Fixed improper quoting in `commands/moderation/vote.ts` where single quotes inside a template string clashed with YAML single-quote delimiters. Switched to double quotes for the outer wrapper.",
+  "timestamp": "2025-05-18T13:25:00.000Z",
+  "session_summary": "Fixed Mixed Content issues by forcing HTTPS on API calls when the client is secure.",
+  "technical_details": "Updated `services/ServerBridge.ts` to upgrade HTTP URLs to HTTPS in the constructor if `window.location.protocol` is 'https:'. Updated `hooks/useAppAuth.ts` to enforce HTTPS on stored `serverUrl`. Updated `components/ServerStatusPanel.tsx` to prevent auto-fill from downgrading HTTPS to HTTP.",
   "files_changed": [
-    "commands/moderation/vote.ts"
+    "services/ServerBridge.ts",
+    "hooks/useAppAuth.ts",
+    "components/ServerStatusPanel.tsx"
   ]
 }

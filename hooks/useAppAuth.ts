@@ -9,10 +9,14 @@ export const useAppAuth = (activeChannelMode: string) => {
   const [serverUrl, setServerUrl] = useState(() => {
       let stored = localStorage.getItem('GEMINI_SERVER_URL');
       
+      const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+
       // Fix for Mixed Content: If running on HTTPS, force stored HTTP URL to HTTPS (unless localhost)
-      if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
-          if (stored && stored.startsWith('http:') && !stored.includes('localhost') && !stored.includes('127.0.0.1')) {
+      if (isHttps && stored) {
+          if (stored.startsWith('http:') && !stored.includes('localhost') && !stored.includes('127.0.0.1')) {
               stored = stored.replace(/^http:/, 'https:');
+              // Update storage immediately to prevent regression
+              localStorage.setItem('GEMINI_SERVER_URL', stored);
           }
       }
 
@@ -44,6 +48,24 @@ export const useAppAuth = (activeChannelMode: string) => {
       }
   }, [serverUrl]);
 
+  // Force HTTPS if on secure context
+  useEffect(() => {
+      if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+          if (serverUrl.startsWith('http:') && !serverUrl.includes('localhost') && !serverUrl.includes('127.0.0.1')) {
+              setServerUrl(prev => prev.replace(/^http:/, 'https:'));
+          }
+      }
+  }, [serverUrl]);
+
+  // Ensure Bot Token is persisted immediately when state changes
+  useEffect(() => {
+      if (botToken) {
+          localStorage.setItem('gemini_bot_token', botToken);
+      } else {
+          localStorage.removeItem('gemini_bot_token');
+      }
+  }, [botToken]);
+
   // Auth Hash Parser
   useEffect(() => {
       const hash = window.location.hash;
@@ -57,6 +79,7 @@ export const useAppAuth = (activeChannelMode: string) => {
 
           if (accessToken && shouldAutoLogin) {
               setBotToken(accessToken);
+              // Redundant safety set
               localStorage.setItem('gemini_bot_token', accessToken);
           }
           

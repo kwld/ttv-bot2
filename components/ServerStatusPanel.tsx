@@ -67,7 +67,12 @@ const ServerStatusPanel: React.FC<ServerStatusPanelProps> = ({
                   // If the server reports a canonical URL, update the input field if the user hasn't changed it manually
                   // This helps if the local storage has localhost but the server knows its real public URL
                   if (data.apiUrl && tempUrl === serverUrl) {
-                      setTempUrl(data.apiUrl);
+                      let newUrl = data.apiUrl;
+                      // Fix: Upgrade to HTTPS if client is HTTPS
+                      if (window.location.protocol === 'https:' && newUrl.startsWith('http:') && !newUrl.includes('localhost')) {
+                          newUrl = newUrl.replace(/^http:/, 'https:');
+                      }
+                      setTempUrl(newUrl);
                   }
               })
               .catch(() => {});

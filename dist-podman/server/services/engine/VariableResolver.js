@@ -5,6 +5,8 @@
 
 
 
+
+
 export class VariableResolver {
   
   static getNestedValue(path, context, activeTargets) {
@@ -227,6 +229,11 @@ export class VariableResolver {
             if (Array.isArray(val)) {
                 changed = true;
                 return val.join(separator);
+            }
+            // NEW: Object support (key: value)
+            if (val && typeof val === 'object') {
+                changed = true;
+                return Object.entries(val).map(([k, v]) => `${k}: ${v}`).join(separator);
             }
         }
         // ---------------------------------------------

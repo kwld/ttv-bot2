@@ -48,7 +48,7 @@ interface ChatSimulatorProps {
   onRefreshEmotes?: () => void;
   emoteRefreshCooldown?: number;
   isLoadingEmotes?: boolean;
-  isChatEnabled?: boolean; // New Prop
+  isChatEnabled?: boolean; 
 }
 
 // Helper: Ensure Color Readability
@@ -789,6 +789,9 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
   // Determine input disabled state
   const isInputDisabled = isReadOnly || isConflictDisabled || (isTwitchConnected && !isChatEnabled && activeChannel.mode !== 'testing');
 
+  // --- WARNING STATE ---
+  const showDisconnectedWarning = !isTwitchConnected && activeChannel.mode !== 'testing';
+
   return (
     <div className="w-full h-full bg-[#0f111a] border-l border-[#2d3446] flex flex-col shadow-2xl relative min-w-0" onClick={() => { setFocusedUserProfile(null); setShowSettings(false); }}>
       
@@ -928,6 +931,22 @@ const ChatSimulator: React.FC<ChatSimulatorProps> = ({
             )}
         </div>
       </div>
+
+      {/* Warning Banner */}
+      {showDisconnectedWarning && (
+          <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-1.5 flex items-center justify-center gap-2 animate-in fade-in slide-in-from-top-1">
+              <i className="fas fa-wifi text-red-500 text-xs"></i>
+              <span className="text-[10px] font-black uppercase text-red-400 tracking-widest">Chat Offline</span>
+              {onConnectTwitch && (
+                  <button 
+                      onClick={onConnectTwitch} 
+                      className="ml-2 px-2 py-0.5 bg-red-500/20 hover:bg-red-500 text-red-300 hover:text-white rounded text-[9px] font-bold uppercase transition-colors"
+                  >
+                      Reconnect
+                  </button>
+              )}
+          </div>
+      )}
 
       {/* Messages Area - Wrapped for absolute positioning of overlays */}
       <div className="flex-1 relative min-w-0">

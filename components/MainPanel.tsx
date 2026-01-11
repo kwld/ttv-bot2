@@ -145,7 +145,7 @@ const MainPanel: React.FC<MainPanelProps> = ({
   };
 
   const enhancedChannelTabs = React.isValidElement(channelTabsNode) 
-      ? React.cloneElement(channelTabsNode as React.ReactElement<any>, { onAddChannelFromUrl })
+      ? React.cloneElement(channelTabsNode as React.ReactElement<any>, { onAddChannelFromUrl, ircConnected })
       : channelTabsNode;
 
   // Filter waitings to only show for active channel
@@ -323,6 +323,7 @@ const MainPanel: React.FC<MainPanelProps> = ({
                 }}
                 onExecuteNode={onExecuteNode} 
                 channelName={activeChannel.name}
+                isReadOnly={activeChannel.isLocked && activeChannel.mode !== 'testing'}
               />
             </ComponentLoader>
           </div>

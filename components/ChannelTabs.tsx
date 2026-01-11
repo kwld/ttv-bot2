@@ -26,6 +26,7 @@ interface ChannelTabsProps {
   onToggleLock?: (id: string) => void;
   nextCheckTime?: number;
   onAddChannelFromUrl?: (url: string) => void;
+  ircConnected?: boolean;
 }
 
 const getChannelModeClass = (mode: string, provider: string) => {
@@ -63,7 +64,8 @@ export const ChannelTabs: React.FC<ChannelTabsProps> = ({
   onEditChannel,
   onToggleLock,
   nextCheckTime = 0,
-  onAddChannelFromUrl
+  onAddChannelFromUrl,
+  ircConnected
 }) => {
   const { t } = useTranslation();
   const isLeft = placement === 'left';
@@ -337,6 +339,12 @@ export const ChannelTabs: React.FC<ChannelTabsProps> = ({
             >
                 <i className={`fas ${isDragOverAdd ? 'fa-link' : 'fa-plus'} text-xs`}></i>
             </button>
+
+            {ircConnected === false && (
+                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-red-500/20 text-red-500 border border-red-500/30 animate-pulse" title="Global Chat Disconnected">
+                    <i className="fas fa-wifi text-[10px]"></i>
+                </div>
+            )}
 
             <div className="w-px h-4 bg-slate-700 mx-1"></div>
 
