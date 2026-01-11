@@ -69,6 +69,14 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
       }
   }, [value, type]);
 
+  // Auto-resize textarea when focused to expand downwards
+  useEffect(() => {
+      if (isFocused && inputRef.current) {
+          inputRef.current.style.height = 'auto';
+          inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
+      }
+  }, [value, isFocused]);
+
   // Memoize flat list of variables with metadata
   const allFlatVariables = useMemo(() => {
     const rawList = availableVariables.map(v => {
@@ -298,6 +306,8 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
       const rect = inputRef.current.getBoundingClientRect();
       const windowWidth = window.innerWidth;
       const MIN_WIDTH = 320;
+      // Do NOT forcefully expand width more than needed to cover parent,
+      // but ensure popup menu has space
       let width = Math.max(rect.width, MIN_WIDTH);
       let left = rect.left;
       if (left + width > windowWidth - 16) left = windowWidth - width - 16;
@@ -484,14 +494,17 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
 
   const commonClasses = `w-full bg-slate-950 border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-700 shadow-inner text-slate-200 ${hasSyntaxError ? 'border-red-500 focus:border-red-500' : 'border-slate-800'}`;
   
-  // Focused styles: Pop out and expand
-  // We use `!absolute` to override relative positioning, and high z-index.
-  // We calculate width/min-height to ensure it covers the area + grows.
+  // Focused styles: Pop out only via Z-Index but maintain relative position to parent,
+  // essentially overlaying the original input but expanding vertically (textarea).
+  // We remove min-w to not break layout width rules requested.
   const focusedClasses = isFocused 
-      ? `absolute top-0 left-0 z-[100] border-indigo-500 shadow-2xl scale-[1.02] origin-top-left min-w-[320px] ${isTextarea ? 'min-h-[200px]' : ''}` 
+      ? `absolute top-0 left-0 z-[100] border-indigo-500 shadow-2xl scale-[1.00] origin-top-left w-[calc(100%+4px)] -left-[2px] -top-[2px]` 
       : '';
   
   const useTextInput = isTextarea || type === 'text' || type === 'variable' || type === 'user' || (type === 'number' && isVariableMode);
+
+  // If focused, enforce TextArea to allow wrapping (one-liners expand down)
+  const shouldRenderTextarea = isTextarea || (isFocused && useTextInput);
 
   const getBadgeColors = (node: HierarchyNode) => {
       if (node.isMethod) return 'text-pink-400 bg-pink-500/10 border-pink-500/20';
@@ -512,12 +525,12 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
         {/* Placeholder to hold space when input pops out */}
         <div 
             className={`${commonClasses} ${isFocused ? 'opacity-0' : 'hidden'} pointer-events-none`} 
-            style={{ height: isTextarea ? '80px' : 'auto' }} // Approx height matches defaults
+            style={{ height: isTextarea ? '80px' : 'auto' }} 
         >
             &nbsp;
         </div>
 
-        {isTextarea ? (
+        {shouldRenderTextarea ? (
           <textarea 
             ref={inputRef as React.RefObject<HTMLTextAreaElement>} 
             value={value} 
@@ -526,8 +539,8 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
             onFocus={() => setIsFocused(true)}
             onBlur={() => setTimeout(() => { setShowSuggestions(false); setIsFocused(false); }, 200)} 
             placeholder={placeholder} 
-            className={`${commonClasses} ${focusedClasses} resize-y ${!isFocused ? 'min-h-[80px]' : ''}`} 
-            rows={3} 
+            className={`${commonClasses} ${focusedClasses} resize-y ${!isFocused ? 'min-h-[80px]' : ''} whitespace-pre-wrap break-words`} 
+            rows={isFocused ? 2 : 3} 
             spellCheck={false} 
           />
         ) : (

@@ -1,15 +1,11 @@
-
-
-
-
 export const CMD_VOTE_YAML = `
 id: mod-vote
 name: Głosowanie (Vote)
 category: Moderation
-version: '2.2'
+version: '2.3'
 provider: twitch
 channelId: sim_1
-enabled: false
+enabled: true
 testAsUser: false
 allowedRanks:
   - moderator
@@ -94,7 +90,7 @@ rootAction:
                         - id: confirm-msg
                           type: SAY
                           settings:
-                            message: "📋 Przygotowano głosowanie na: {voteOptions.join(', ')}. Wpisz 'start' aby rozpocząć lub 'cancel' aby anulować."
+                            message: '📋 Przygotowano głosowanie na: {voteOptions.join('', '')}. Wpisz ''start'' aby rozpocząć lub ''cancel'' aby anulować.'
                           position:
                             x: 2140
                             y: 100
@@ -105,17 +101,27 @@ rootAction:
                                 target: '@{sender}'
                                 keyword: start,cancel
                                 duration: '30'
+                                resultVar: repl
                               position:
                                 x: 2500
                                 y: 100
                               errorChildren:
-                                - id: confirm-timeout
-                                  type: SAY
+                                - id: handle-timeout
+                                  type: HANDLE_ERROR
                                   settings:
-                                    message: 💤 Czas na potwierdzenie minął. Głosowanie anulowane.
+                                    cases:
+                                      - id: case-timeout
+                                        errorName: WAIT_TIMEOUT
                                   position:
                                     x: 2880
-                                    y: 380
+                                    y: 400
+                                  branches:
+                                    case-timeout:
+                                      - id: f730caf7-1c73-43d2-961e-0972886c377f
+                                        type: JUMP
+                                        settings:
+                                          targetId: start-vote-msg
+                                        children: []
                                   children: []
                               children:
                                 - id: check-decision
@@ -124,7 +130,7 @@ rootAction:
                                     conditions:
                                       - id: is_start
                                         name: Start
-                                        left: '{replied_word}'
+                                        left: '{repl}'
                                         op: contains
                                         right: start
                                   position:
@@ -135,7 +141,7 @@ rootAction:
                                       - id: start-vote-msg
                                         type: SAY
                                         settings:
-                                          message: "🗳️ Głosowanie rozpoczęte! Wpisz jedną z opcji: {voteOptions.join(', ')} (Czas: 60s)"
+                                          message: '🗳️ Głosowanie rozpoczęte! Wpisz jedną z opcji: {voteOptions.join('', '')} (Czas: 60s)'
                                         position:
                                           x: 3260
                                           y: 100
@@ -165,7 +171,7 @@ rootAction:
                                               - id: result-msg
                                                 type: SAY
                                                 settings:
-                                                  message: '🏆 Głosowanie zakończone! Wyniki: {results}. Zwycięzca: {winner}!'
+                                                  message: '🏆 Głosowanie zakończone! Wyniki: {results.join('', '')}. Zwycięzca: {winner}!'
                                                 position:
                                                   x: 4000
                                                   y: 100
@@ -176,7 +182,7 @@ rootAction:
                                         settings:
                                           message: 🛑 Głosowanie anulowane przez użytkownika.
                                         position:
-                                          x: 3260
+                                          x: 3280
                                           y: 360
                                         children: []
                                   children: []
