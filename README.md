@@ -32,7 +32,7 @@ Your goal is to build a robust, scalable, and aesthetically stunning visual prog
 *   **Backend:** Node.js (ES Modules), Express, MongoDB (Mongoose v8+).
     *   *Real-time:* Native `ws` (WebSocket) for low-latency status updates.
 *   **AI Integration:** `@google/genai` SDK (Gemini 2.5/3.0 Models).
-    *   Used for: Chat Simulation, "AI Builder" (Text-to-Node generation), and Smart Commits.
+    *   Used for: Chat Simulation, "AI Builder" (Text-to-Node generation).
 *   **Twitch:** `tmi.js` (Client Chat) + `Helix API` (Server Events/Metadata) + `EventSub` (Webhooks).
 
 ### 3. 🎨 Design & UX Guidelines
@@ -40,20 +40,23 @@ Your goal is to build a robust, scalable, and aesthetically stunning visual prog
 *   **Responsiveness:** The Editor canvas (`FlowBuilder`) is complex; prioritize desktop usability but ensure modals/panels work on mobile.
 *   **Feedback:** Every action (Save, Connect, Error) must provide visual feedback (Toasts, Pulsing Icons, Color Changes).
 
-### 4. ⚡ Execution Rules
+### 4. ⚡ Execution & Workflow Rules
 1.  **Safety:** Never expose `process.env` secrets in the client bundle. Use the `ServerBridge` proxy for sensitive API calls in production mode.
 2.  **Modularity:** Keep the Flow Engine logic decoupled from the React UI components.
-3.  **Change Tracking:**
-    **CRITICAL:** Upon completing ANY session or task, you **MUST** update the `AI_SUMMARY.json` file in the root directory to maintain context memory.
-
-    ```json
-    {
-      "timestamp": "ISO 8601 Date String",
-      "session_summary": "High-level summary of what was accomplished.",
-      "technical_details": "Specific refactors, bug fixes, or architecture changes.",
-      "files_changed": ["path/to/file1.ts", "path/to/file2.tsx"]
-    }
-    ```
+3.  **Critical: Change Tracking & Commits**
+    *   The project uses a script (`npm run git:commit`) that reads `AI_SUMMARY.json` to generate commit messages.
+    *   **IT IS YOUR RESPONSIBILITY AS THE AI** to generate or update `AI_SUMMARY.json` whenever you make code changes.
+    *   **DO NOT** rely on the commit script to generate the summary for you. The script is read-only regarding context.
+    *   **Format:**
+        ```json
+        {
+          "timestamp": "ISO 8601 Date String",
+          "session_summary": "High-level summary of what you did in this turn.",
+          "technical_details": "Specific details (e.g., 'Refactored FlowNode.tsx to use memoization', 'Fixed auth bug in ServerBridge').",
+          "files_changed": ["path/to/file1.ts", "path/to/file2.tsx"]
+        }
+        ```
+    *   **Always** include this JSON update in your final output.
 
 ---
 
