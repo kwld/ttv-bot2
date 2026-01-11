@@ -1,4 +1,7 @@
 
+
+
+
 import React, { useState, useRef, useLayoutEffect, useEffect, useMemo } from 'react';
 import { ActionInstance, ActionType, ActionPlugin, FlowZone, VariableDefinition } from '../../types';
 import { PLUGINS } from '../../plugins/definitions';
@@ -208,7 +211,7 @@ const FlowNode: React.FC<FlowNodeProps> = ({
           ports.push(<Port key="found" id={`p-${node.id}-found`} label="OK" type="branch" disabled={disabled} onMouseDown={(e) => onLinkStart(e, node.id, 'branch', 'found', 0)} />);
           ports.push(<Port key="missing" id={`p-${node.id}-missing`} label="NO" type="error" disabled={disabled} onMouseDown={(e) => onLinkStart(e, node.id, 'branch', 'missing', 1)} />);
       }
-      if (node.type !== ActionType.JOIN && node.type !== ActionType.HANDLE_ERROR) {
+      if (node.type !== ActionType.JOIN && node.type !== ActionType.HANDLE_ERROR && node.type !== ActionType.CONNECTOR_IN) {
           ports.push(<Port key="ERR" id={`p-${node.id}-ERR`} label="ERR" type="error" disabled={disabled} onMouseDown={(e) => onLinkStart(e, node.id, 'error')}/>);
       }
       return ports;
@@ -217,6 +220,8 @@ const FlowNode: React.FC<FlowNodeProps> = ({
   const getHeaderColor = () => {
       if (node.type === ActionType.START) return 'bg-emerald-900/40 border-emerald-500/20';
       if (node.type === ActionType.LOG) return 'bg-zinc-800/80 border-zinc-600/30'; 
+      if (node.type === ActionType.CONNECTOR_IN) return 'bg-cyan-900/40 border-cyan-500/20';
+      if (node.type === ActionType.CONNECTOR_OUT) return 'bg-orange-900/40 border-orange-500/20';
       return 'bg-slate-800/40 border-slate-700/50';
   };
 
@@ -233,12 +238,62 @@ const FlowNode: React.FC<FlowNodeProps> = ({
                              (node.settings.allowedTypes?.includes('%') || node.settings.allowedTypes?.includes('all'));
 
   const isStartNode = node.type === ActionType.START;
+  const isConnector = node.type === ActionType.CONNECTOR_IN || node.type === ActionType.CONNECTOR_OUT;
+  
   const delayLabel = isStartNode ? t('flow_builder.default_start_delay') : t('flow_builder.delay_s');
   const delayValueKey = isStartNode ? 'defaultDelay' : '_executionDelay';
   const delayPlaceholder = isStartNode ? '0.6' : '0';
 
   const translatedName = t(`plugins.${node.type}.name`, { defaultValue: plugin.name });
   const simpleVars = useMemo(() => scope.map(s => s.path), [scope]);
+
+  // Special minimalist rendering for Connectors
+  if (isConnector) {
+      return (
+        <div 
+          id={`node-${node.id}`} ref={nodeRef} style={{ left: node.position.x, top: node.position.y, width: 220 }} // Smaller width
+          className={`absolute flex flex-col bg-[#161b22] border-2 rounded-xl shadow-2xl transition-all duration-200 group/node z-0 hover:z-10 ${isFlashing ? 'ring-4 ring-white border-white z-50 scale-105' : !isReachable ? 'opacity-50 grayscale border-dashed' : status === 'error' ? 'border-red-500 animate-pulse' : status === 'running' ? 'border-cyan-400 scale-105 z-40' : 'border-slate-800'} ${isReadOnly ? 'cursor-default' : ''}`}
+          onContextMenu={(e) => !isReadOnly && onContextMenu(e, node.id)}
+          onMouseEnter={() => onMouseEnter(node.id)}
+          onMouseLeave={onMouseLeave}
+        >
+             {/* Input Port for IN node only */}
+             {node.type === ActionType.CONNECTOR_IN && !isReadOnly && (
+                 <div 
+                    onMouseDown={(e) => { e.stopPropagation(); onReverseLinkStart(e, node.id); }}
+                    onMouseUp={(e) => { e.stopPropagation(); onReverseLinkEnd(node.id); }}
+                    className={`absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center z-20 cursor-crosshair ${isSnapped ? 'bg-emerald-400 border-white scale-150' : isValidTarget ? 'bg-white border-emerald-500 scale-125 animate-pulse' : 'bg-[#0d1117] border-slate-600'}`}
+                 >
+                   <div className={`w-2 h-2 rounded-full ${isValidTarget ? 'bg-emerald-500' : 'bg-slate-500'}`}></div>
+                 </div>
+             )}
+             
+             {/* Output Port for OUT node only */}
+             {node.type === ActionType.CONNECTOR_OUT && !isReadOnly && (
+                <div onMouseDown={(e) => { e.stopPropagation(); onLinkStart(e, node.id, 'main'); }} className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 border-indigo-400 bg-indigo-600 flex items-center justify-center z-20 cursor-crosshair shadow-lg"><span className="text-[9px] font-black text-white">O</span></div>
+             )}
+
+             <div 
+                onMouseDown={(e) => { e.stopPropagation(); if(!isReadOnly) onDragStart(e, node.id); }}
+                className={`h-10 flex items-center justify-between px-3 rounded-lg ${isReadOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'} relative ${getHeaderColor()}`}
+             >
+                <div className="flex items-center gap-2 w-full">
+                    <i className={`fas ${plugin.icon} text-xs text-slate-400`}></i>
+                    <input 
+                        value={node.settings.tag || ''}
+                        onChange={(e) => onUpdate(updateNodeInTree(rootNode, node.id, { settings: { ...node.settings, tag: e.target.value } }))}
+                        className="bg-transparent text-[11px] font-black uppercase tracking-widest outline-none text-slate-200 placeholder:text-slate-600 flex-1 min-w-0"
+                        placeholder="TAG NAME"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        disabled={isReadOnly}
+                    />
+                    {node.type === ActionType.CONNECTOR_IN && <i className="fas fa-arrow-right text-[10px] text-cyan-500"></i>}
+                    {node.type === ActionType.CONNECTOR_OUT && <i className="fas fa-arrow-right text-[10px] text-orange-500"></i>}
+                </div>
+             </div>
+        </div>
+      );
+  }
 
   return (
     <div 

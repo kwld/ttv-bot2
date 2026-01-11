@@ -1,4 +1,5 @@
 
+
 import { load } from 'js-yaml';
 import { Command } from '../types';
 import { CMD_AI_YAML } from './ai/ai';
@@ -15,6 +16,7 @@ import { CMD_CLIP_YAML } from './stream/clip';
 import { CMD_WHOIS_YAML } from './utility/whois';
 import { CMD_KOP_YAML } from './fun/kop';
 import { CMD_LIST_YAML } from './utility/cmdlist';
+import { CMD_VOTE_YAML } from './moderation/vote'; // New Import
 
 export const BUILT_IN_COMMANDS: Command[] = [
     CMD_AI_YAML,
@@ -30,5 +32,6 @@ export const BUILT_IN_COMMANDS: Command[] = [
     CMD_GIVE_POINTS_YAML,
     CMD_CLIP_YAML,
     CMD_WHOIS_YAML,
-    CMD_LIST_YAML
+    CMD_LIST_YAML,
+    CMD_VOTE_YAML // Added
 ].map(yaml => load(yaml) as Command);

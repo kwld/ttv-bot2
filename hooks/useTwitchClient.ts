@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState, MutableRefObject, useCallback } from 'react';
 import { TwitchChatClient, TwitchMessage, TwitchUserNotice, fetchLiveStreams } from '../services/twitchService';
 import { Channel, ActivityNotification, User, Provider } from '../types';
@@ -127,7 +126,8 @@ export const useTwitchClient = ({
                     liveStreams = await fetchLiveStreams(botToken!, clientIdRef.current, channelsToCheckApi);
                 } catch (e: any) {
                     console.error("Live status check error", e);
-                    if (e.message?.includes("OAuth token") && onAuthErrorRef.current) onAuthErrorRef.current();
+                    const errorMessage = (e instanceof Error) ? e.message : String(e);
+                    if (errorMessage.includes("OAuth token") && onAuthErrorRef.current) onAuthErrorRef.current();
                     return; 
                 }
             }
@@ -230,7 +230,7 @@ export const useTwitchClient = ({
                     safeLog(`JOIN:${lowerName}`, () => {
                         // Notify for any channel type
                         const ch = channelsRef.current.find(c => c.name.toLowerCase() === lowerName);
-                        if (ch) addBotMessage(`🟢 JOINED (Local): #${channel}`, 'twitch', ch.id, false, true, { level: 'success' });
+                        if (ch) addBotMessage(`🟢 JOINED (Local): #${channel}`, 'twitch', String(ch.id), false, true, { level: 'success' });
                     });
                     const next = new Set(prev);
                     next.add(lowerName);
@@ -243,7 +243,7 @@ export const useTwitchClient = ({
                     if (!prev.has(lowerName)) return prev;
                     safeLog(`PART:${lowerName}`, () => {
                         const ch = channelsRef.current.find(c => c.name.toLowerCase() === lowerName);
-                        if (ch) addBotMessage(`🔴 PARTED (Local): #${channel}`, 'twitch', ch.id, false, true, { level: 'warning' });
+                        if (ch) addBotMessage(`🔴 PARTED (Local): #${channel}`, 'twitch', String(ch.id), false, true, { level: 'warning' });
                     });
                     const n = new Set(prev); n.delete(lowerName); return n; 
                 });

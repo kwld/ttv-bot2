@@ -1,4 +1,5 @@
 
+
 export const plugins = {
   plugins: {
     START: { 
@@ -18,6 +19,14 @@ export const plugins = {
         regex_hint: "If enabled, keywords are treated as RegEx (e.g. ^start matches only start of message)."
     },
     WAIT_FOR_USER_REPLY: { name: "Wait for Reply", desc: "Wait for specific user input." },
+    POLL_WAIT: { 
+        name: "Poll Wait (Voting)", 
+        desc: "Runs a vote for a duration. Counts !vote commands." 
+    },
+    CREATE_LIST: {
+        name: "Create List (Split)",
+        desc: "Split text into a list/array."
+    },
     RANDOM_PICK: { name: "Pick Random", desc: "Select one item from list." },
     PICK_MULTIPLE: { name: "Pick Multiple", desc: "Select multiple items." },
     RANDOM_NUMBER: { name: "Random Number", desc: "Generate integer in range." },
@@ -42,6 +51,8 @@ export const plugins = {
     VALIDATE_NUMBER: { name: "Parse Number", desc: "Handle suffixes (k, m, %, all)." },
     JOIN: { name: "Barrier (Sync)", desc: "Wait for multiple inputs." },
     JUMP: { name: "Jump", desc: "Go to another node." },
+    CONNECTOR_IN: { name: "Input (Sender)", desc: "Wirelessly sends flow to matching Output." },
+    CONNECTOR_OUT: { name: "Output (Receiver)", desc: "Receives flow from matching Input." },
     HANDLE_ERROR: { name: "Handle Error", desc: "Catch specific errors." },
     HALT: { name: "Halt Flow", desc: "Stop running commands." }
   }

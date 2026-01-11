@@ -1,8 +1,9 @@
 
+
 import { ActionType, ActionPlugin } from '../types';
 
-export const PLUGINS: Record<ActionType, ActionPlugin> = {
-  [ActionType.CHECK_USER]: {
+export const PLUGINS: Record<string, ActionPlugin> = {
+  CHECK_USER: {
     type: ActionType.CHECK_USER,
     name: 'Sprawdź Użytkownika (API)',
     description: 'Weryfikuje istnienie użytkownika (Twitch API) i pobiera jego dane (ID, data założenia, avatar).',
@@ -16,7 +17,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}', '{resultVar}.id', '{resultVar}.createdAt', '{resultVar}.viewCount'],
     possibleErrors: ['USER_NOT_FOUND']
   },
-  [ActionType.START]: {
+  START: {
     type: ActionType.START,
     name: 'Start Flow',
     description: 'Punkt wejścia komendy. Skonfiguruj triggery.',
@@ -55,7 +56,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     },
     possibleErrors: ['GLOBAL_COOLDOWN', 'USER_COOLDOWN']
   },
-  [ActionType.SAY]: {
+  SAY: {
     type: ActionType.SAY,
     name: 'Say (Wyślij)',
     description: 'Wyślij publiczną wiadomość na czat (Server/Twitch).',
@@ -71,7 +72,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
       }
     }
   },
-  [ActionType.LOG]: {
+  LOG: {
     type: ActionType.LOG,
     name: 'System Log (Local)',
     description: 'Wyświetla wiadomość TYLKO w oknie czatu. Obsługuje kolory i spacje.',
@@ -98,7 +99,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
       }
     }
   },
-  [ActionType.AI_CHAT]: {
+  AI_CHAT: {
     type: ActionType.AI_CHAT,
     name: 'AI Chat (Gemini)',
     description: 'Generuje inteligentną odpowiedź na podstawie promptu.',
@@ -159,7 +160,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}'],
     possibleErrors: ['API_ERROR', 'RATE_LIMIT', 'API_DISABLED_BY_ADMIN']
   },
-  [ActionType.EMAIL]: {
+  EMAIL: {
     type: ActionType.EMAIL,
     name: 'Wyślij Email',
     description: 'Wysyła wiadomość email (Symulacja/API Serwera).',
@@ -173,7 +174,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     },
     possibleErrors: ['INVALID_EMAIL', 'SEND_FAILED']
   },
-  [ActionType.CREATE_CLIP]: {
+  CREATE_CLIP: {
     type: ActionType.CREATE_CLIP,
     name: 'Create Clip (Klip)',
     description: 'Tworzy klip z ostatnich 30s streamu (Wymaga Live Server).',
@@ -201,7 +202,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}', '{resultVar}_edit', '{resultVar}_id'],
     possibleErrors: ['API_ERROR', 'NOT_LIVE', 'NO_PERMISSION']
   },
-  [ActionType.WAIT]: {
+  WAIT: {
     type: ActionType.WAIT,
     name: 'Czekaj (Delay)',
     description: 'Zatrzymuje wykonywanie flow na określony czas.',
@@ -212,16 +213,16 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
       duration: { label: 'Czas (sekundy)', type: 'variable', placeholder: '5' }
     }
   },
-  [ActionType.WAIT_FOR_KEYWORD]: {
+  WAIT_FOR_KEYWORD: {
     type: ActionType.WAIT_FOR_KEYWORD,
     name: 'Zbieraj Uczestników',
     description: 'Zbiera użytkowników wpisujących słowa w określonym czasie. Obsługuje wiele słów i Regex.',
     icon: 'fa-hourglass-half',
     category: 'Triggers',
-    aliases: ['collect', 'gather', 'wait input', 'czekaj na slowo'],
+    aliases: ['collect', 'gather', 'wait input', 'czekaj na slowo', 'poll', 'vote', 'glosowanie'],
     producesCollection: true,
     settingsSchema: {
-      keyword: { label: 'Hasło / Wyrażenie', type: 'text', placeholder: 'join,gram lub ^join$' },
+      keyword: { label: 'Hasło / Wyrażenie', type: 'text', placeholder: 'join,gram lub !vote' },
       duration: { label: 'Czas (sek)', type: 'number', placeholder: '30' },
       maxUsers: { label: 'Limit osób (Opcjonalny)', type: 'number', placeholder: '0 = brak' },
       useRegex: { 
@@ -229,12 +230,37 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
           type: 'boolean',
           helperText: 'plugins.WAIT_FOR_KEYWORD.regex_hint'
       },
-      listVar: { label: 'Nazwa Listy (Zmienna)', type: 'text', placeholder: 'participants' }
+      listVar: { label: 'Nazwa Listy (Zmienna)', type: 'text', placeholder: 'participants' },
+      enableVoting: {
+          label: 'Włącz Tryb Głosowania',
+          type: 'boolean',
+          defaultValue: false,
+          helperText: 'Zbiera treść wiadomości jako głosy'
+      },
+      validOptions: {
+          label: 'Dozwolone Opcje (Lista)',
+          type: 'variable',
+          placeholder: '{voteOptions}',
+          helperText: 'Jeśli podane, zlicza tylko te głosy. (Tryb Głosowania)'
+      },
+      voteResultVar: {
+          label: 'Zapisz Wyniki Jako',
+          type: 'text',
+          placeholder: 'voteResults',
+          defaultValue: 'voteResults',
+          helperText: 'Zmienna obiektu wyników (np. { "A": 5, "B": 2 })'
+      },
+      winnerVar: {
+          label: 'Zapisz Zwycięzcę Jako',
+          type: 'text',
+          placeholder: 'winnerOption',
+          defaultValue: 'winnerOption'
+      }
     },
-    returns: ['{listVar}', '{listVar}.length', 'lastKeyword'],
+    returns: ['{listVar}', '{listVar}.length', 'lastKeyword', '{voteResultVar}', '{winnerVar}'],
     possibleErrors: ['COLLECTION_EMPTY', 'ALREADY_WAITING']
   },
-  [ActionType.WAIT_FOR_USER_REPLY]: {
+  WAIT_FOR_USER_REPLY: {
     type: ActionType.WAIT_FOR_USER_REPLY,
     name: 'Czekaj na Usera',
     description: 'Zatrzymuje flow do momentu, aż konkretny użytkownik wpisze słowo kluczowe.',
@@ -254,7 +280,22 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}'],
     possibleErrors: ['WAIT_TIMEOUT', 'ALREADY_WAITING']
   },
-  [ActionType.RANDOM_PICK]: {
+  CREATE_LIST: {
+    type: ActionType.CREATE_LIST,
+    name: 'Utwórz Listę (Split)',
+    description: 'Tworzy listę z tekstu rozdzielając go separatorem.',
+    icon: 'fa-list-ul',
+    category: 'Data',
+    aliases: ['list', 'array', 'split', 'tablica', 'kolekcja', 'explode'],
+    producesCollection: true,
+    settingsSchema: {
+        input: { label: 'Tekst wejściowy', type: 'variable', placeholder: '{args.all}' },
+        separator: { label: 'Separator', type: 'text', defaultValue: ',', placeholder: ',' },
+        resultVar: { label: 'Zapisz listę jako', type: 'text', placeholder: 'myList', defaultValue: 'myList' }
+    },
+    returns: ['{resultVar}', '{resultVar}.length']
+  },
+  RANDOM_PICK: {
     type: ActionType.RANDOM_PICK,
     name: 'Losuj Jeden',
     description: 'Wybiera losowy element z kolekcji.',
@@ -269,7 +310,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}'],
     possibleErrors: ['COLLECTION_EMPTY']
   },
-  [ActionType.PICK_MULTIPLE]: {
+  PICK_MULTIPLE: {
     type: ActionType.PICK_MULTIPLE,
     name: 'Losuj Kilka',
     description: 'Wybiera określoną liczbę unikalnych elementów.',
@@ -286,7 +327,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}'],
     possibleErrors: ['COLLECTION_EMPTY']
   },
-  [ActionType.RANDOM_NUMBER]: {
+  RANDOM_NUMBER: {
     type: ActionType.RANDOM_NUMBER,
     name: 'Losuj Liczbę',
     description: 'Generuje losową liczbę całkowitą z zakresu.',
@@ -300,7 +341,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     },
     returns: ['{resultVar}']
   },
-  [ActionType.RANDOM_EMOTE]: {
+  RANDOM_EMOTE: {
     type: ActionType.RANDOM_EMOTE,
     name: 'Losuj Emotkę',
     description: 'Wybiera losową emotkę z dostępnych (Twitch, 7TV, etc.).',
@@ -318,7 +359,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}'],
     possibleErrors: ['NO_EMOTES_FOUND']
   },
-  [ActionType.RANDOM_CHATTER]: {
+  RANDOM_CHATTER: {
     type: ActionType.RANDOM_CHATTER,
     name: 'Losuj z Czatu',
     description: 'Wybiera losowego użytkownika z bazy danych obecnego kanału.',
@@ -336,7 +377,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}'],
     possibleErrors: ['NO_USERS_FOUND']
   },
-  [ActionType.ITERATE]: {
+  ITERATE: {
     type: ActionType.ITERATE,
     name: 'Pętla (Iteracja)',
     description: 'Uruchamia akcje podrzędne dla każdego elementu listy.',
@@ -350,7 +391,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     },
     returns: ['item', 'index', '{varName}']
   },
-  [ActionType.JOIN_STRING]: {
+  JOIN_STRING: {
     type: ActionType.JOIN_STRING,
     name: 'Formatuj Listę (Join)',
     description: 'Łączy listę obiektów/tekstów w jeden ciąg tekstowy wg wzorca.',
@@ -367,7 +408,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     },
     returns: ['{resultVar}']
   },
-  [ActionType.POINTS_GET]: {
+  POINTS_GET: {
     type: ActionType.POINTS_GET,
     name: 'Pobierz Punkty',
     description: 'Pobiera stan waluty użytkownika do zmiennej.',
@@ -387,7 +428,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}', '{userVar}'],
     possibleErrors: ['USER_NOT_FOUND']
   },
-  [ActionType.POINTS_MODIFY]: {
+  POINTS_MODIFY: {
     type: ActionType.POINTS_MODIFY,
     name: 'Zmień Punkty',
     description: 'Dodaje, odejmuje lub ustawia punkty użytkownikowi.',
@@ -404,7 +445,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}', '{userVar}'],
     possibleErrors: ['USER_NOT_FOUND', 'INSUFFICIENT_FUNDS']
   },
-  [ActionType.TOP_USERS]: {
+  TOP_USERS: {
     type: ActionType.TOP_USERS,
     name: 'Ranking (Top Users)',
     description: 'Pobiera posortowaną listę najlepszych użytkowników.',
@@ -424,7 +465,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     },
     returns: ['{resultVar}', '{resultVar}.length']
   },
-  [ActionType.FETCH_API]: {
+  FETCH_API: {
     type: ActionType.FETCH_API,
     name: 'API Zewnętrzne',
     description: 'Pobiera dane z adresu URL (JSON).',
@@ -464,7 +505,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}'],
     possibleErrors: ['API_ERROR', 'API_DISABLED_BY_ADMIN']
   },
-  [ActionType.RANK_CHECK]: {
+  RANK_CHECK: {
     type: ActionType.RANK_CHECK,
     name: 'Sprawdź Rangę',
     description: 'Blokuje flow jeśli użytkownik nie ma rangi.',
@@ -480,7 +521,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     },
     possibleErrors: ['RANK_INSUFFICIENT']
   },
-  [ActionType.CONDITION]: {
+  CONDITION: {
     type: ActionType.CONDITION,
     name: 'Warunek (Rozgałęzienie)',
     description: 'Zaawansowane warunki (Switch/Case). Sprawdza reguły po kolei.',
@@ -492,7 +533,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     },
     possibleErrors: ['EVALUATION_ERROR']
   },
-  [ActionType.CHECK_ARG]: {
+  CHECK_ARG: {
     type: ActionType.CHECK_ARG,
     name: 'Sprawdź Argument',
     description: 'Sprawdza czy podano argument (np. nick użytkownika).',
@@ -503,7 +544,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
         argIndex: { label: 'Indeks (0 = pierwszy)', type: 'number', placeholder: '0' }
     }
   },
-  [ActionType.SET_VARIABLE]: {
+  SET_VARIABLE: {
     type: ActionType.SET_VARIABLE,
     name: 'Ustaw Zmienną',
     description: 'Zapisuje wartość do wykorzystania w tym flow.',
@@ -515,7 +556,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
       value: { label: 'Wartość', type: 'variable' }
     }
   },
-  [ActionType.CALCULATE]: {
+  CALCULATE: {
     type: ActionType.CALCULATE,
     name: 'Oblicz (Matma)',
     description: 'Wykonuje proste działania matematyczne (+, -, *, /).',
@@ -529,7 +570,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['{resultVar}'],
     possibleErrors: ['MATH_ERROR']
   },
-  [ActionType.VALIDATE_NUMBER]: {
+  VALIDATE_NUMBER: {
     type: ActionType.VALIDATE_NUMBER,
     name: 'Parsuj (k, kk, %, all)',
     description: 'Przetwarza liczby, sufiksy (10k, 5m), procenty (50%) i słowo all. Zwraca czystą liczbę.',
@@ -550,7 +591,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     returns: ['error_name', '{resultVar}'],
     possibleErrors: ['INVALID_NUMBER']
   },
-  [ActionType.JOIN]: {
+  JOIN: {
     type: ActionType.JOIN,
     name: 'Bariera (Sync)',
     description: 'Czeka na aktywację z wielu źródeł przed przejściem dalej.',
@@ -561,7 +602,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
       requiredInputs: { label: 'Wymagana liczba wejść', type: 'number', placeholder: '2' }
     }
   },
-  [ActionType.JUMP]: {
+  JUMP: {
     type: ActionType.JUMP,
     name: 'Skok',
     description: 'Przekierowuje wykonanie do innego węzła.',
@@ -573,7 +614,29 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     },
     isHidden: true
   },
-  [ActionType.HANDLE_ERROR]: {
+  CONNECTOR_IN: {
+    type: ActionType.CONNECTOR_IN,
+    name: 'Wejście (Nadajnik)',
+    description: 'Wysyła sygnał do wszystkich węzłów Wyjścia o tym samym tagu. Działa jak bezprzewodowe połączenie.',
+    icon: 'fa-sign-in-alt',
+    category: 'Flow',
+    aliases: ['portal in', 'sender', 'nadajnik', 'wireless'],
+    settingsSchema: {
+      tag: { label: 'Tag (Nazwa Połączenia)', type: 'text', placeholder: 'MAIN_LOOP' }
+    }
+  },
+  CONNECTOR_OUT: {
+    type: ActionType.CONNECTOR_OUT,
+    name: 'Wyjście (Odbiornik)',
+    description: 'Odbiera sygnał z węzłów Wejścia o tym samym tagu. Kontynuuje przepływ stąd.',
+    icon: 'fa-sign-out-alt',
+    category: 'Flow',
+    aliases: ['portal out', 'receiver', 'odbiornik', 'wireless'],
+    settingsSchema: {
+      tag: { label: 'Tag (Nazwa Połączenia)', type: 'text', placeholder: 'MAIN_LOOP' }
+    }
+  },
+  HANDLE_ERROR: {
     type: ActionType.HANDLE_ERROR,
     name: 'Obsługa Błędów',
     description: 'Specjalny węzeł, który reaguje na nazwy błędów z poprzedniego węzła.',
@@ -585,7 +648,7 @@ export const PLUGINS: Record<ActionType, ActionPlugin> = {
     },
     returns: ['error_name']
   },
-  [ActionType.HALT]: {
+  HALT: {
     type: ActionType.HALT,
     name: 'Zatrzymaj Komendy',
     description: 'Przerywa działanie wszystkich aktywnych instancji komend o podanych wyzwalaczach.',

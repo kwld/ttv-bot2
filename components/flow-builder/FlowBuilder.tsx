@@ -1,4 +1,12 @@
 
+
+
+
+
+
+
+
+
 import React, { useState, useRef, useEffect } from 'react';
 import { ActionInstance, ActionType, FlowZone, VariableDefinition } from '../../types';
 import { PLUGINS } from '../../plugins/definitions';
@@ -738,7 +746,7 @@ const FlowBuilder: React.FC<FlowCanvasProps> = ({
        const cy = e.clientY - rect.top;
        setShowAddMenu({ 
          x: (cx - panOffset.x) / zoom, 
-         y: (cy - panOffset.y) / zoom,
+         y: (cy - panOffset.y) / zoom, 
          containerX: cx,
          containerY: cy
        });
@@ -835,8 +843,23 @@ const FlowBuilder: React.FC<FlowCanvasProps> = ({
         />
 
         {displayNodes.map(node => {
-          if (!node || !PLUGINS[node.type]) return null;
-          const plugin = PLUGINS[node.type];
+          // SAFEGUARD: If plugin is missing, use a fallback definition to render an "Unknown" node
+          // This prevents visual "holes" when a plugin is missing from the registry but exists in the flow data
+          let plugin = PLUGINS[node.type];
+          if (!plugin) {
+              const availableKeys = Object.keys(PLUGINS).join(', ');
+              console.error(`[FlowBuilder] Unknown Node Type: "${node.type}"`);
+              console.warn(`[FlowBuilder] Available Types: ${availableKeys}`);
+
+              plugin = {
+                  type: node.type,
+                  name: `UNKNOWN: ${node.type}`,
+                  icon: 'fa-bug',
+                  description: `Error: Type "${node.type}" not found in registry. Check console for available types. Raw Settings: ${JSON.stringify(node.settings || {})}`,
+                  category: 'Flow',
+                  settingsSchema: {}
+              } as any;
+          }
           
           if (plugin.isHidden) return null; // Skip rendering hidden nodes (like JUMPS)
 
@@ -844,7 +867,10 @@ const FlowBuilder: React.FC<FlowCanvasProps> = ({
           if (node.type === ActionType.HANDLE_ERROR && node.parentId) {
              const parentNode = flatNodes.find(n => n.id === node.parentId);
              if (parentNode) {
-                 availableErrors = PLUGINS[parentNode.type]?.possibleErrors || [];
+                 const pPlugin = PLUGINS[parentNode.type];
+                 if (pPlugin) {
+                     availableErrors = pPlugin.possibleErrors || [];
+                 }
              }
           }
 

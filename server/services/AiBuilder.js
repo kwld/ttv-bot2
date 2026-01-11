@@ -1,4 +1,6 @@
 
+
+
 import { GoogleGenAI } from "@google/genai";
 import { ActionType } from '../types.js';
 
@@ -101,6 +103,9 @@ export class AiBuilder {
 
         13. **CREATE_CLIP** (Twitch Clip)
             - settings: { "title": "Clip Title", "createDelay": "0", "resultVar": "clipUrl" }
+        
+        14. **CREATE_LIST** (Split String)
+           - settings: { "input": "{args.all}", "separator": ",", "resultVar": "myList" }
 
         ### LOGIC PATTERNS (Best Practices)
         - **Gamble**: START -> POINTS_GET -> CONDITION (funds >= bet) -> (True: RANDOM_NUMBER -> CONDITION (win/loss) -> MODIFY) -> (False: SAY "Not enough points").

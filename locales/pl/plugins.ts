@@ -1,4 +1,6 @@
 
+
+
 export const plugins = {
   plugins: {
     START: { 
@@ -18,6 +20,14 @@ export const plugins = {
         regex_hint: "Jeśli włączone, słowa są traktowane jako wzorce RegEx (np. ^start pasuje tylko na początku)."
     },
     WAIT_FOR_USER_REPLY: { name: "Czekaj na Odpowiedź", desc: "Czekaj na odpowiedź konkretnego użytkownika." },
+    POLL_WAIT: { 
+        name: "Głosowanie (Poll)", 
+        desc: "Zlicza głosy (!vote) przez określony czas." 
+    },
+    CREATE_LIST: {
+        name: "Utwórz Listę (Split)",
+        desc: "Dzieli tekst na listę elementów."
+    },
     RANDOM_PICK: { name: "Losuj Jeden", desc: "Wybierz losowy element z listy." },
     PICK_MULTIPLE: { name: "Losuj Kilka", desc: "Wybierz wiele unikalnych elementów." },
     RANDOM_NUMBER: { name: "Losowa Liczba", desc: "Generuj liczbę z zakresu." },
@@ -42,6 +52,8 @@ export const plugins = {
     VALIDATE_NUMBER: { name: "Parsuj Liczbę", desc: "Obsługa sufiksów (k, m, %, all)." },
     JOIN: { name: "Bariera (Sync)", desc: "Czekaj na wiele wejść." },
     JUMP: { name: "Skok (Jump)", desc: "Przejdź do innego węzła." },
+    CONNECTOR_IN: { name: "Wejście (Nadajnik)", desc: "Bezprzewodowo wysyła sygnał do Wyjścia." },
+    CONNECTOR_OUT: { name: "Wyjście (Odbiornik)", desc: "Odbiera sygnał z Wejścia." },
     HANDLE_ERROR: { name: "Obsługa Błędów", desc: "Przechwyć błędy z poprzedniego węzła." },
     HALT: { name: "Zatrzymaj", desc: "Przerwij działanie komend." }
   }
