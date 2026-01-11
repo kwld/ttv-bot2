@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -50,6 +48,9 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, flipped: false });
   const [selectedIndex, setSelectedIndex] = useState(0);
   
+  // UX State: Expanded View
+  const [isFocused, setIsFocused] = useState(false);
+  
   const isKeyboardNav = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 }); 
   const blockMouseRef = useRef(false);
@@ -60,6 +61,7 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
 
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
       if (type === 'number' && value && isNaN(Number(value)) && value.trim() !== '' && !isVariableMode) {
@@ -118,7 +120,13 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
       }
 
       const cleanFilter = filterContext.trim();
-      const exactMatch = allFlatVariables.find(v => v.val === cleanFilter);
+      
+      // Determine if we are looking at children (ends with dot)
+      // or searching for a variable (no dot or dot in middle)
+      const hasTrailingDot = cleanFilter.endsWith('.');
+      
+      // Find exact match only if no trailing dot (unless it's an exact match up to the dot??)
+      // Actually, if it has a trailing dot, we are looking for children of that path.
       
       // -- GROUPS --
       let closeOption: HierarchyNode[] = [];
@@ -126,44 +134,56 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
       let ternarySuggestion: HierarchyNode[] = [];
       let varNodes: HierarchyNode[] = [];
 
-      // A. Populate Close & Operators
-      if ((exactMatch || !isNaN(Number(cleanFilter))) && cleanFilter.length > 0) {
+      // A. Populate Close & Operators (Only if we have content and it's not just a dot traversal start)
+      if (cleanFilter.length > 0) {
           closeOption = [{ 
               key: '}', 
-              fullPath: cleanFilter, 
+              fullPath: cleanFilter, // Will be handled by insert logic to strip dot if needed
               isLeaf: true, 
               hasChildren: false, 
               description: t('variables.close_obj'), 
               isClose: true 
           }];
 
-          operatorSuggestions = [
-              { key: '==', fullPath: cleanFilter + ' == ', isLeaf: false, hasChildren: false, description: 'Equals', isOperator: true },
-              { key: '!=', fullPath: cleanFilter + ' != ', isLeaf: false, hasChildren: false, description: 'Not Equals', isOperator: true },
-              { key: '>', fullPath: cleanFilter + ' > ', isLeaf: false, hasChildren: false, description: 'Greater Than', isOperator: true },
-              { key: '<', fullPath: cleanFilter + ' < ', isLeaf: false, hasChildren: false, description: 'Less Than', isOperator: true },
-              { key: '>=', fullPath: cleanFilter + ' >= ', isLeaf: false, hasChildren: false, description: 'Greater/Equal', isOperator: true },
-              { key: '<=', fullPath: cleanFilter + ' <= ', isLeaf: false, hasChildren: false, description: 'Less/Equal', isOperator: true },
-          ];
+          if (!hasTrailingDot) {
+              operatorSuggestions = [
+                  { key: '==', fullPath: cleanFilter + ' == ', isLeaf: false, hasChildren: false, description: 'Equals', isOperator: true },
+                  { key: '!=', fullPath: cleanFilter + ' != ', isLeaf: false, hasChildren: false, description: 'Not Equals', isOperator: true },
+                  { key: '>', fullPath: cleanFilter + ' > ', isLeaf: false, hasChildren: false, description: 'Greater Than', isOperator: true },
+                  { key: '<', fullPath: cleanFilter + ' < ', isLeaf: false, hasChildren: false, description: 'Less Than', isOperator: true },
+                  { key: '>=', fullPath: cleanFilter + ' >= ', isLeaf: false, hasChildren: false, description: 'Greater/Equal', isOperator: true },
+                  { key: '<=', fullPath: cleanFilter + ' <= ', isLeaf: false, hasChildren: false, description: 'Less/Equal', isOperator: true },
+              ];
 
-          ternarySuggestion = [
-              { key: '? (Ternary)', fullPath: cleanFilter + ' ? ', isLeaf: false, hasChildren: false, description: 'Condition ? True : False', isOperator: true, isTernary: true }
-          ];
+              ternarySuggestion = [
+                  { key: '? (Ternary)', fullPath: cleanFilter + ' ? ', isLeaf: false, hasChildren: false, description: 'Condition ? True : False', isOperator: true, isTernary: true }
+              ];
+          }
       }
 
       // B. Populate Variable Children/Properties
-      const parts = filterContext.split('.');
-      const prefixPath = parts.slice(0, -1).join('.');
-      const currentSegmentFilter = parts[parts.length - 1].toLowerCase(); 
+      let prefixPath = '';
+      let currentSegmentFilter = '';
+
+      if (hasTrailingDot) {
+          prefixPath = cleanFilter.slice(0, -1);
+          currentSegmentFilter = '';
+      } else {
+          const parts = cleanFilter.split('.');
+          if (parts.length > 1) {
+              prefixPath = parts.slice(0, -1).join('.');
+              currentSegmentFilter = parts[parts.length - 1].toLowerCase();
+          } else {
+              currentSegmentFilter = cleanFilter.toLowerCase();
+          }
+      }
+      
       const relevantPrefix = prefixPath ? prefixPath + '.' : '';
 
       const nodesMap = new Map<string, HierarchyNode>();
 
       // Special Injection for `args` methods and properties
       if (relevantPrefix === 'args.' || (!prefixPath && 'args'.startsWith(currentSegmentFilter))) {
-          // If we are deep in args (e.g. args.join), assume join is valid
-          // OR if we are at root and just typed something that matches args
-          
           if (relevantPrefix === 'args.') {
               // Add array helper methods for args
               if ('join'.startsWith(currentSegmentFilter)) {
@@ -175,7 +195,7 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
                       description: 'Join arguments into string',
                       category: 'system' as const,
                       isMethod: true,
-                      cursorOffset: -2 // Moves cursor between quotes
+                      cursorOffset: -2 
                   });
               }
 
@@ -195,16 +215,14 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
           }
       }
 
-      // General Join Suggestion for ANY array-like or if user is typing .join
-      // Logic: If there is a prefix, and the user types 'join', we suggest the join method on that prefix
+      // General Join Suggestion for ANY array-like or object-like variable
       if (relevantPrefix && 'join'.startsWith(currentSegmentFilter)) {
-           // We don't strictly know types, but we offer .join() if the user is typing it
            nodesMap.set('join', {
               key: 'join(...)',
               fullPath: `${relevantPrefix}join(', ')`,
               isLeaf: true,
               hasChildren: false,
-              description: 'Format List (Array)',
+              description: 'Format List/Object',
               category: 'system' as const,
               isMethod: true,
               cursorOffset: -2
@@ -240,7 +258,7 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
                   if (isLeaf) {
                       existing.isLeaf = true;
                       if (v.description) existing.description = v.description;
-                      existing.category = v.category; // Leaf overrides container type
+                      existing.category = v.category;
                       existing.sourceNodeId = v.sourceNodeId;
                   } else {
                       existing.hasChildren = true;
@@ -250,9 +268,8 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
       });
 
       varNodes = Array.from(nodesMap.values()).sort((a, b) => {
-          // Sort by category importance: Iterator -> Node -> System
           const score = (n: HierarchyNode) => {
-              if (n.isMethod) return -1; // Methods first
+              if (n.isMethod) return -1;
               if (n.isIterator) return 0;
               if (n.category === 'node') return 1;
               return 2;
@@ -309,20 +326,17 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
          window.removeEventListener('scroll', handleUpdate, true);
       };
     } else {
-        // Clear node highlight when closed
         if (onHoverNode) onHoverNode(null);
     }
   }, [showSuggestions, updateCoords]);
 
   useEffect(() => {
-    // Scroll active item into view
     if (showSuggestions && listRef.current) {
       const activeItem = listRef.current.children[selectedIndex] as HTMLElement;
       if (activeItem) {
           activeItem.scrollIntoView({ block: 'nearest' });
       }
       
-      // Auto-trigger hover logic for keyboard nav
       const selectedNode = suggestions[selectedIndex];
       if (onHoverNode && selectedNode) {
           onHoverNode(selectedNode.sourceNodeId || null);
@@ -358,15 +372,22 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
     const val = value;
     const textBefore = val.slice(0, cursor);
     const lastOpen = textBefore.lastIndexOf('{');
-    const prefix = textBefore.slice(0, lastOpen + 1);
+    const prefix = textBefore.slice(0, lastOpen + 1); // text inside { so far
     const suffix = val.slice(cursor);
-    
+    const basePrefix = textBefore.slice(0, lastOpen + 1); // text including {
+
+    // --- FIX: Closing Brace Logic ---
     if (node.isClose) {
-        const cleanVar = node.fullPath || filterContext.trim();
-        const fullVal = prefix + cleanVar + '}' + suffix;
+        let cleanVar = filterContext.trim();
+        // If current filter has a trailing dot (e.g. "myList."), remove it before closing
+        if (cleanVar.endsWith('.')) {
+            cleanVar = cleanVar.slice(0, -1);
+        }
+        
+        const fullVal = basePrefix + cleanVar + '}' + suffix;
         onChange(fullVal);
         setShowSuggestions(false);
-        const newPos = prefix.length + cleanVar.length + 1;
+        const newPos = basePrefix.length + cleanVar.length + 1;
         requestAnimationFrame(() => {
             if(inputRef.current) {
                 inputRef.current.focus();
@@ -383,33 +404,36 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
     if (node.isTernary) {
         newContent = node.fullPath + 'true : false'; 
         const trueStart = node.fullPath.length;
-        newCursorPos = prefix.length + trueStart;
+        newCursorPos = basePrefix.length + trueStart;
         selectRange = 4; 
     } else if (node.hasChildren) {
         newContent += '.';
-        newCursorPos = prefix.length + newContent.length;
+        newCursorPos = basePrefix.length + newContent.length;
     } else if (node.isOperator) {
-        newCursorPos = prefix.length + newContent.length;
+        newCursorPos = basePrefix.length + newContent.length;
     } else {
         newContent = node.fullPath;
-        newCursorPos = prefix.length + newContent.length;
+        newCursorPos = basePrefix.length + newContent.length;
     }
 
-    // Apply manual cursor offset (e.g. for .join(''))
     if (node.cursorOffset) {
         newCursorPos += node.cursorOffset;
     }
 
-    const fullVal = prefix + newContent + suffix;
+    const fullVal = basePrefix + newContent + suffix;
     onChange(fullVal);
     
     // Stop suggesting if it's a method or leaf (unless ternary/operator logic dictates otherwise)
-    if (node.isMethod || (!node.isTernary && !node.isOperator && node.isLeaf)) {
+    if (node.isTernary) {
         setShowSuggestions(false);
-    } else if (node.isTernary) {
+    } else if (node.isMethod || (!node.isOperator && node.isLeaf)) {
         setShowSuggestions(false);
     } else {
+        // --- CONTINUOUS SUGGESTION LOGIC ---
+        // Force the filter context to the newly inserted path (e.g., "myList.") 
+        // and keep suggestions open so the user sees children immediately.
         setFilterContext(newContent);
+        setShowSuggestions(true);
     }
     
     isKeyboardNav.current = false;
@@ -459,9 +483,16 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
   }, [value]);
 
   const commonClasses = `w-full bg-slate-950 border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition-all placeholder:text-slate-700 shadow-inner text-slate-200 ${hasSyntaxError ? 'border-red-500 focus:border-red-500' : 'border-slate-800'}`;
+  
+  // Focused styles: Pop out and expand
+  // We use `!absolute` to override relative positioning, and high z-index.
+  // We calculate width/min-height to ensure it covers the area + grows.
+  const focusedClasses = isFocused 
+      ? `absolute top-0 left-0 z-[100] border-indigo-500 shadow-2xl scale-[1.02] origin-top-left min-w-[320px] ${isTextarea ? 'min-h-[200px]' : ''}` 
+      : '';
+  
   const useTextInput = isTextarea || type === 'text' || type === 'variable' || type === 'user' || (type === 'number' && isVariableMode);
 
-  // Helper to determine badge colors
   const getBadgeColors = (node: HierarchyNode) => {
       if (node.isMethod) return 'text-pink-400 bg-pink-500/10 border-pink-500/20';
       if (node.isIterator) return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
@@ -472,11 +503,33 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
   };
 
   return (
-    <div className="relative group w-full">
+    <div className="relative group w-full" ref={containerRef}>
       {label && <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 tracking-wider">{label}</label>}
+      
+      {/* Container for Input + Placeholder */}
       <div className="relative">
+        
+        {/* Placeholder to hold space when input pops out */}
+        <div 
+            className={`${commonClasses} ${isFocused ? 'opacity-0' : 'hidden'} pointer-events-none`} 
+            style={{ height: isTextarea ? '80px' : 'auto' }} // Approx height matches defaults
+        >
+            &nbsp;
+        </div>
+
         {isTextarea ? (
-          <textarea ref={inputRef as React.RefObject<HTMLTextAreaElement>} value={value} onChange={handleInput} onKeyDown={handleKeyDown} onBlur={() => setTimeout(() => { setShowSuggestions(false); }, 200)} placeholder={placeholder} className={`${commonClasses} resize-y min-h-[80px]`} rows={3} spellCheck={false} />
+          <textarea 
+            ref={inputRef as React.RefObject<HTMLTextAreaElement>} 
+            value={value} 
+            onChange={handleInput} 
+            onKeyDown={handleKeyDown} 
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setTimeout(() => { setShowSuggestions(false); setIsFocused(false); }, 200)} 
+            placeholder={placeholder} 
+            className={`${commonClasses} ${focusedClasses} resize-y ${!isFocused ? 'min-h-[80px]' : ''}`} 
+            rows={3} 
+            spellCheck={false} 
+          />
         ) : (
           <input 
             ref={inputRef as React.RefObject<HTMLInputElement>} 
@@ -484,14 +537,15 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
             value={value} 
             onChange={handleInput} 
             onKeyDown={handleKeyDown} 
-            onBlur={() => setTimeout(() => { setShowSuggestions(false); }, 200)} 
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setTimeout(() => { setShowSuggestions(false); setIsFocused(false); }, 200)} 
             placeholder={placeholder} 
-            className={`${commonClasses} ${type === 'number' ? 'pr-9' : ''}`}
+            className={`${commonClasses} ${focusedClasses} ${type === 'number' ? 'pr-9' : ''}`}
             spellCheck={false} 
           />
         )}
         
-        {type === 'number' && !isTextarea && (
+        {type === 'number' && !isTextarea && !isFocused && (
             <button 
                 type="button"
                 onClick={() => setIsVariableMode(prev => !prev)}
@@ -504,7 +558,7 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
         )}
       </div>
 
-      {hasSyntaxError && ( 
+      {hasSyntaxError && !isFocused && ( 
           <div className="mt-1.5 flex items-center justify-end animate-in fade-in slide-in-from-top-1">
              <div className="bg-red-500/10 border border-red-500/50 text-red-400 text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wide flex items-center gap-1">
                 <i className="fas fa-spell-check"></i> {t('variables.syntax_error')}
@@ -548,9 +602,8 @@ const VariableInput: React.FC<VariableInputProps> = ({ value, onChange, placehol
               
               const badgeColors = getBadgeColors(node);
 
-              // Use standard dark hover, but highlight border/text based on category
               let rowClass = 'text-slate-300 hover:bg-slate-800';
-              if (isActive) rowClass = 'bg-slate-800 text-white shadow-lg'; // Simple active state, color handled by badge
+              if (isActive) rowClass = 'bg-slate-800 text-white shadow-lg'; 
 
               return (
               <button 

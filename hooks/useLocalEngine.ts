@@ -1,6 +1,10 @@
 
 
 
+
+
+
+
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { Channel, Command, User, WaitingInfo, Provider, UserEntity } from '../types';
 import { FlowEngine, NodeStatus } from '../services/flowEngine';
@@ -208,7 +212,12 @@ export const useLocalEngine = ({
                 if (info.enableVoting) {
                     if (info.validOptions && Array.isArray(info.validOptions) && info.validOptions.length > 0) {
                         // Check against allowed options (case-insensitive)
+                        // CRITICAL FIX: IF VOTING AND OPTIONS EXIST, STRICT MATCH ONLY
                         isMatch = info.validOptions.some((opt: any) => String(opt).toLowerCase().trim() === cleanTextLower);
+                        
+                        // If not a valid vote option, IGNORE completely (don't consume, don't flash)
+                        if (!isMatch) continue; 
+
                     } else {
                         // If no validOptions are enforced
                         if (!info.keyword || info.keyword.trim() === '') {
@@ -235,6 +244,36 @@ export const useLocalEngine = ({
 
                 if (isMatch) { 
                     const currentList = localParticipantsRef.current.get(execId) || [];
+                    const existingIndex = currentList.findIndex(p => p.user.id === user.id);
+
+                    // Update existing vote if voting mode is enabled
+                    if (existingIndex !== -1) {
+                        if (info.enableVoting) {
+                            currentList[existingIndex].keyword = text;
+                            localParticipantsRef.current.set(execId, currentList);
+                            
+                            // Trigger visual update (Flash node)
+                            if (matchingChannel.id === activeChannelIdRef.current) {
+                                setFlashingNodeId(info.actionId);
+                                setTimeout(() => setFlashingNodeId(null), 200);
+                            }
+                            
+                            // Trigger count update (Even though count doesn't change, we refresh state)
+                            setActiveWaitings(prev => {
+                                const current = prev[execId];
+                                if (current) {
+                                    return { 
+                                        ...prev, 
+                                        [execId]: { ...current, participantCount: currentList.length } 
+                                    };
+                                }
+                                return prev;
+                            });
+                        }
+                        // If standard wait, ignore duplicate triggers from same user
+                        return;
+                    }
+
                     if (!currentList.some(p => p.user.id === user.id)) {
                         currentList.push({ user, keyword: text });
                         localParticipantsRef.current.set(execId, currentList);

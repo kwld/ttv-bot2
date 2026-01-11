@@ -2,6 +2,8 @@
 
 
 
+
+
 import React, { useState, useRef, useLayoutEffect, useEffect, useMemo } from 'react';
 import { ActionInstance, ActionType, ActionPlugin, FlowZone, VariableDefinition } from '../../types';
 import { PLUGINS } from '../../plugins/definitions';
@@ -347,7 +349,7 @@ const FlowNode: React.FC<FlowNodeProps> = ({
             <div onMouseDown={(e) => { e.stopPropagation(); onLinkStart(e, node.id, 'main'); }} className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 border-indigo-400 bg-indigo-600 flex items-center justify-center z-20 cursor-crosshair shadow-lg"><span className="text-[9px] font-black text-white">O</span></div>
         )}
       </div>
-      <div className={`p-3 bg-[#0d1117]/30 rounded-b-xl relative overflow-hidden ${isReadOnly ? 'pointer-events-none' : ''}`}>
+      <div className={`p-3 bg-[#0d1117]/30 rounded-b-xl relative ${isReadOnly ? 'pointer-events-none' : ''}`}>
         <div className="flex flex-col gap-3 pb-2">
           <div className="border-b border-slate-700/50 pb-2">
             <VariableInput 

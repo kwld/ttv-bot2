@@ -2,6 +2,8 @@
 
 
 
+
+
 import { ActionInstance, ActionType } from '../../types';
 import { PLUGINS } from '../../plugins/definitions';
 import { 
@@ -315,6 +317,8 @@ export const calculateScope = (rootNode: ActionInstance, commandStaticVars?: Rec
                 else if (r === '{listVar}') actualName = settings.listVar;
                 else if (r === '{listVar}.length') actualName = settings.listVar ? `${settings.listVar}.length` : null;
                 else if (r === '{userVar}') actualName = settings.userVar || 'targetUser';
+                else if (r === '{voteResultVar}') actualName = settings.voteResultVar || 'voteResults';
+                else if (r === '{winnerVar}') actualName = settings.winnerVar || 'winnerOption';
                 else if (r.includes('{resultVar}')) actualName = r.replace('{resultVar}', settings.resultVar || '');
                 else if (r.includes('{listVar}')) actualName = r.replace('{listVar}', settings.listVar || '');
                 else if (r.includes('{varName}')) actualName = r.replace('{varName}', settings.varName || 'item');

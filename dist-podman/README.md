@@ -43,10 +43,18 @@ Your goal is to build a robust, scalable, and aesthetically stunning visual prog
 ### 4. ⚡ Execution & Workflow Rules
 1.  **Safety:** Never expose `process.env` secrets in the client bundle. Use the `ServerBridge` proxy for sensitive API calls in production mode.
 2.  **Modularity:** Keep the Flow Engine logic decoupled from the React UI components.
-3.  **Critical: Change Tracking & Commits**
+3.  **File Generation & Context (CRITICAL):**
+    *   **FULL FILES ONLY:** Always output the **entire** content of the file when making changes. **Never** return partial code, snippets, or placeholders like `// ... rest of code`.
+    *   **Context Preservation:** When modifying an existing file, you **MUST** preserve all existing logic, imports, and helper functions unless explicitly asked to refactor them. Ensure that fixes made in previous turns of the current chat session are retained.
+    *   **"NEW" Trigger:** If the user's prompt starts with the word **NEW** (uppercase), disregard the existing file content and generate the file from scratch based solely on the prompt requirements. Otherwise, always merge changes into the existing file context.
+4.  **Change Tracking & Commits (AI_SUMMARY.json):**
     *   The project uses a script (`npm run git:commit`) that reads `AI_SUMMARY.json` to generate commit messages.
     *   **IT IS YOUR RESPONSIBILITY AS THE AI** to generate or update `AI_SUMMARY.json` whenever you make code changes.
-    *   **DO NOT** rely on the commit script to generate the summary for you. The script is read-only regarding context.
+    *   **CUMULATIVE LOGIC:**
+        1.  If the user's prompt starts with **NEW** (uppercase), **RESET** `AI_SUMMARY.json` (create a fresh one).
+        2.  Otherwise, **READ** the existing `AI_SUMMARY.json` content provided in the context.
+        3.  **MERGE** the new files modified in this turn into the existing `files_changed` array (avoiding duplicates).
+        4.  **UPDATE** `technical_details` and `session_summary` to reflect the latest changes.
     *   **Format:**
         ```json
         {
@@ -180,19 +188,39 @@ Use the **Condition** node to create branches.
 
 | Category | Node Type | Description |
 | :--- | :--- | :--- |
-| **Triggers** | `START` | Entry point. Defines chat triggers and cooldowns. |
-| | `WAIT_FOR_KEYWORD` | Pauses flow until someone types a specific word. |
+| **Triggers** | `START` | Entry point. Defines chat triggers and event subscriptions (On Join, On Sub). |
+| | `WAIT_FOR_KEYWORD` | Pauses flow until specific keywords are typed. Supports Voting mode. |
+| | `WAIT_FOR_USER_REPLY` | Pauses flow until a specific user replies. |
 | **Actions** | `SAY` | Sends a message to chat. |
 | | `AI_CHAT` | Queries Google Gemini with context/history. |
 | | `LOG` | Logs to the local system console (debug). |
+| | `EMAIL` | Sends a simulated or server-side email. |
+| | `CREATE_CLIP` | Creates a clip of the stream (Server Mode only). |
 | **Logic** | `CONDITION` | If/Else logic based on variables. |
 | | `ITERATE` | Loops through a list of items/users. |
 | | `RANDOM_NUMBER` | Generates a random number. |
 | | `RANDOM_PICK` | Picks a winner/item from a list. |
+| | `PICK_MULTIPLE` | Picks multiple unique items from a list. |
+| | `RANDOM_EMOTE` | Selects a random emote from the channel. |
+| | `RANDOM_CHATTER` | Selects a random active user from the database. |
+| | `CHECK_ARG` | Verifies command arguments exist. |
+| | `RANK_CHECK` | Verifies user permissions (Mod/VIP/Sub). |
+| | `CALCULATE` | Performs math operations. |
+| | `WAIT` | Simple time delay. |
 | **Data** | `POINTS_GET` | Retrieves a user's currency balance. |
 | | `POINTS_MODIFY` | Adds/Removes/Sets user points. |
 | | `SET_VARIABLE` | Creates or updates a local variable. |
-| | `FETCH_API` | Gets data from external APIs. |
+| | `FETCH_API` | Gets data from external APIs (JSON). |
+| | `CHECK_USER` | Resolves Twitch User ID/Data from username. |
+| | `TOP_USERS` | Retrieves leaderboard data. |
+| | `CREATE_LIST` | Splits a string into a list/array. |
+| | `JOIN_STRING` | Formats a list into a single string. |
+| | `VALIDATE_NUMBER` | Parses user input (e.g. "10k", "50%", "all") into numbers. |
+| **Flow** | `JUMP` | Jumps execution to another node (Visual cleanliness). |
+| | `CONNECTOR_IN/OUT` | Wireless connections for organizing large flows. |
+| | `JOIN` | Barrier that waits for multiple incoming connections. |
+| | `HANDLE_ERROR` | Catch-block for errors from previous nodes. |
+| | `HALT` | Stops execution of all instances of a command. |
 
 ---
 

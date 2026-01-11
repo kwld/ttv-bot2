@@ -1,4 +1,6 @@
 
+
+
 import { ActionType } from '../../types.js';
 import { VariableResolver } from './VariableResolver.js';
 import { GoogleGenAI } from "@google/genai";
@@ -161,7 +163,6 @@ export class FlowExecutor {
     const resolver = this.pendingResolvers.get(executionId);
     if (resolver) {
       resolver(data);
-      this.pendingResolvers.delete(executionId);
     }
   }
 
@@ -293,6 +294,33 @@ export class FlowExecutor {
             return; 
         }
 
+        if (action.type === ActionType.CONNECTOR_IN) {
+            const tag = action.settings.tag;
+            if (tag) {
+                this.callbacks.onNodeStatusUpdate(action.id, 'running');
+                await new Promise(r => setTimeout(r, 100)); 
+                
+                const targets = [];
+                // Scan all nodes in context to find matching OUTs
+                for (const node of context.nodeMap.values()) {
+                    if (node.type === ActionType.CONNECTOR_OUT && node.settings.tag === tag) {
+                        targets.push(node);
+                    }
+                }
+                
+                this.callbacks.onNodeStatusUpdate(action.id, 'completed');
+                // Execute targets in parallel
+                await Promise.all(targets.map(t => this.executeAction(t, context, command, executionId)));
+            }
+            return;
+        }
+
+        if (action.type === ActionType.CONNECTOR_OUT) {
+             // Just a visual passthrough
+             this.callbacks.onNodeStatusUpdate(action.id, 'completed');
+             // Proceed to children normally
+        }
+
         const signals = (context.signals?.get(action.id) || 0) + 1;
         context.signals?.set(action.id, signals);
 
@@ -308,8 +336,6 @@ export class FlowExecutor {
         this.callbacks.onNodeStatusUpdate(action.id, 'running');
         
         // --- VISUAL PACING DELAY ---
-        // Ensures the "running" state is propagated and rendered on frontend before switching to "completed"
-        // This makes the flow execution visible and smooth.
         await new Promise(resolve => setTimeout(resolve, 50)); 
         // ---------------------------
 
@@ -372,14 +398,10 @@ export class FlowExecutor {
             let msg = VariableResolver.resolve(action.settings.message || '', context, this.activeTargets);
             
             // Security: Prevent IRC Command Injection (e.g. /ban, /timeout)
-            // Even if AI generates it, we disable it by prepending a space.
             if (msg.startsWith('/') || msg.startsWith('.')) {
                 msg = ' ' + msg;
             }
             
-            if (msg.startsWith('/') || msg.startsWith('.')) {
-                msg = ' ' + msg;
-            }
             const asUser = command.testAsUser || false; 
             this.callbacks.onSay(msg, command.provider, command.channelId, asUser);
             break;
@@ -397,6 +419,18 @@ export class FlowExecutor {
             this.callbacks.onLog(logMsg, 'success');
             break;
           }
+          case ActionType.CREATE_LIST: {
+             const input = VariableResolver.resolve(action.settings.input || '', context, this.activeTargets);
+             const separator = action.settings.separator || ',';
+             
+             // Ensure we deal with a string input for splitting
+             const inputStr = typeof input === 'string' ? input : String(input);
+             const list = inputStr.split(separator).map(s => s.trim()).filter(s => s !== '');
+             
+             const resultVar = action.settings.resultVar || 'myList';
+             context.variables[resultVar] = list;
+             break;
+          }
           case ActionType.CREATE_CLIP: {
             const durationRaw = VariableResolver.resolve(String(action.settings.createDelay || '0'), context, this.activeTargets);
             const duration = parseFloat(durationRaw) || 0;
@@ -410,7 +444,6 @@ export class FlowExecutor {
                 try {
                     clipResult = await this.createClipApi(command.channelId, title, duration);
                 } catch (e) {
-                    // If it's an ID error (e.g. simulation ID), we can fallback to mock
                     if (e.message !== "INVALID_ID_FOR_API") {
                          errorMessage = e.message || "API_ERROR";
                          if (IS_DEV) console.warn("[FlowExecutor] Clip API Failed:", e);
@@ -422,8 +455,6 @@ export class FlowExecutor {
                 errorMessage = "NO_ADAPTER";
             }
 
-            // 2. Fallback to Mock Logic (via callback if provided)
-            // Useful for simulation mode or offline testing
             if (!clipResult && this.callbacks.createClipMock) {
                 try {
                     clipResult = await this.callbacks.createClipMock(command.channelId, title, duration);
@@ -436,7 +467,6 @@ export class FlowExecutor {
                 throw new Error(errorMessage || "CLIP_CREATION_FAILED");
             }
 
-            // Save Variables
             const varName = action.settings.resultVar || 'clipUrl';
             if (typeof clipResult === 'object' && clipResult.url) {
                 context.variables[varName] = clipResult.url;
@@ -467,7 +497,6 @@ export class FlowExecutor {
             break;
           }
           case ActionType.AI_CHAT: {
-             // CRITICAL: Strictly check if channel mode is SERVER before enforcing API access
              if (context.channel && context.channel.mode === 'server') {
                  if (!context.channel.apiEnabled) {
                      this.callbacks.onLog('AI Chat blocked: API Access is disabled for this channel.', 'warning');
@@ -511,16 +540,12 @@ export class FlowExecutor {
 
              if (includeUserContext) {
                  let targetUser = null;
-                 // 1. Explicit context override (from previous nodes like CHECK_USER)
                  if (context.variables.targetUser) {
                      targetUser = context.variables.targetUser;
                  } 
                  
                  if (!targetUser) {
-                     // 2. Intelligent Scanning: STRICT DB Match or Explicit @mention
-                     // Combine args and prompt words to find a potential target
                      const tokens = [...(context.args || []), ...prompt.split(/[\s,?!]+/)];
-                     
                      for (const token of tokens) {
                          if (typeof token !== 'string') continue;
                          const cleanToken = token.trim();
@@ -530,22 +555,17 @@ export class FlowExecutor {
                          const rawName = isMention ? cleanToken.substring(1) : cleanToken;
                          const lowerName = rawName.toLowerCase();
 
-                         // A. Check Local DB (Strict Match)
                          if (this.knownUsers[lowerName]) {
-                             // Only use if it's not the sender or if explicitly referenced
                              if (this.knownUsers[lowerName].id !== context.sender.id) {
                                  targetUser = this.knownUsers[lowerName];
                                  break;
                              }
                          }
 
-                         // B. If explicit mention (@), try API check (Fallback)
-                         // ONLY try API if it was an explicit mention (starts with @)
                          if (isMention && !targetUser && this.callbacks.getUserInfo) {
                              try {
                                  const apiData = await this.callbacks.getUserInfo(rawName);
                                  if (apiData) {
-                                     // Avoid re-matching sender via API unless intent is clear
                                      if (apiData.id !== context.sender.id) {
                                          targetUser = apiData;
                                          break;
@@ -556,9 +576,7 @@ export class FlowExecutor {
                      }
                  }
 
-                 // Check if we actually found a *different* user worth mentioning context for
                  if (targetUser && targetUser.id !== context.sender.id) {
-                     // Try to fetch extended info via API if available (refresh data)
                      if (this.callbacks.getUserInfo) {
                          try {
                              const extendedInfo = await this.callbacks.getUserInfo(targetUser.id || targetUser.username);
@@ -577,16 +595,13 @@ export class FlowExecutor {
                  }
              }
 
-             // BUILD FINAL SYSTEM INSTRUCTION (Dynamic Context + Base Persona)
              let fullContextString = "";
              if (contextParts.length > 0) {
                  fullContextString = contextParts.join('\n\n');
              }
 
-             // Add dynamic instruction to be flexible
              const flexibilityInstruction = "IMPORTANT: You have access to real-time context data above. Use it if relevant to answer questions about the stream, the user, or the current status. HOWEVER, if the user asks a general question unrelated to the context, ignore the context and answer normally. Do not mention that you have this context data unless asked.";
 
-             // Combine all parts into the final system instruction sent to API
              const finalSystemInstruction = [
                  fullContextString, 
                  flexibilityInstruction, 
@@ -599,9 +614,7 @@ export class FlowExecutor {
                  const channelName = context.channel ? context.channel.name : '';
                  let imageUrl = `https://static-cdn.jtvnw.net/previews-ttv/live_user_${channelName.toLowerCase()}-1920x1080.jpg?t=${Date.now()}`;
                  
-                 // Testing Mode Mock URL
                  if (context.channel.mode === 'testing') {
-                     // Random image from picsum for testing
                      imageUrl = `https://picsum.photos/1920/1080?random=${Date.now()}`;
                  }
 
@@ -613,13 +626,8 @@ export class FlowExecutor {
                             ? Buffer.from(arrayBuffer).toString('base64')
                             : btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
                          imagePart = { inlineData: { mimeType: 'image/jpeg', data: base64String } };
-                     } else {
-                         // Stream is likely offline or image not found. Do NOT attach image part.
-                         // console.warn("Image fetch failed, skipping visual context.");
                      }
-                 } catch (e) { 
-                     // Silent fail on image fetch (stream might be offline)
-                 }
+                 } catch (e) { }
              }
 
              try {
@@ -640,10 +648,7 @@ export class FlowExecutor {
                      contents = [...history];
                  }
 
-                 // Build current message parts
                  const parts = [{ text: prompt }];
-                 
-                 // Append image only to the current turn (not persistent history)
                  if (imagePart) parts.push(imagePart);
                  
                  contents.push({ role: 'user', parts: parts });
@@ -651,15 +656,13 @@ export class FlowExecutor {
                  const response = await ai.models.generateContent({
                     model: modelName,
                     contents: contents,
-                    config: { systemInstruction: finalSystemInstruction }, // Use the dynamic combined instruction
+                    config: { systemInstruction: finalSystemInstruction }, 
                  });
                  
                  const responseText = response.text || "(No response)";
                  context.variables[resultVar] = responseText;
 
                  if (useMemory && response.text) {
-                     // When saving to memory, DO NOT include the context strings. 
-                     // Just save the raw user prompt.
                      const userHistoryPart = { role: 'user', parts: [{ text: prompt }] };
                      
                      const newHistory = [...(FlowExecutor.chatHistory.get(historyKey) || [])];
@@ -667,7 +670,7 @@ export class FlowExecutor {
                      newHistory.push(userHistoryPart);
                      newHistory.push({ role: 'model', parts: [{ text: responseText }] });
                      
-                     if (newHistory.length > 20) FlowExecutor.chatHistory.set(historyKey, newHistory.slice(newHistory.length - 20)); // Keep last 10 exchanges
+                     if (newHistory.length > 20) FlowExecutor.chatHistory.set(historyKey, newHistory.slice(newHistory.length - 20));
                      else FlowExecutor.chatHistory.set(historyKey, newHistory);
                      
                      if (this.constructor.onHistoryChange) this.constructor.onHistoryChange();
@@ -690,18 +693,15 @@ export class FlowExecutor {
               const waitingPayload = { keyword: '', duration, actionId: action.id, executionId, startTime, label: 'Waiting' };
               this.callbacks.onWaitingChange(waitingPayload, executionId);
               
-              // --- PROCESS TRACKING: WAIT ---
               if (context.channel.mode === 'server') {
                   this.processManager.setWaiting(executionId, waitingPayload, context.channel.id);
               }
               
-              // Emit Sync Pulse every second
               const syncInterval = setInterval(() => {
                   if (this.activeExecutions.get(executionId)?.controller.signal.aborted) {
                       clearInterval(syncInterval);
                       return;
                   }
-                  // Re-broadcast waiting state to keep client timers synced
                   this.callbacks.onWaitingChange(waitingPayload, executionId);
               }, 1000);
 
@@ -715,10 +715,11 @@ export class FlowExecutor {
             break;
           }
           case ActionType.WAIT_FOR_KEYWORD: {
+            // --- UPDATED WAIT_FOR_KEYWORD with Voting Support ---
             const keyword = VariableResolver.resolve(action.settings.keyword || '', context, this.activeTargets);
-            
-            // --- CHECK FOR DUPLICATE WAIT ---
-            if (this.callbacks.checkActiveWait) {
+            const enableVoting = this.resolveBoolean(action.settings.enableVoting, context);
+
+            if (!enableVoting && this.callbacks.checkActiveWait) {
                 const isDuplicate = this.callbacks.checkActiveWait({
                     type: 'keyword',
                     channelId: command.channelId,
@@ -731,10 +732,28 @@ export class FlowExecutor {
             const maxUsers = parseInt(VariableResolver.resolve(String(action.settings.maxUsers || '0'), context, this.activeTargets)) || 0;
             const useRegex = this.resolveBoolean(action.settings.useRegex, context);
             
-            const waitingPayload = { keyword, duration, maxUsers, actionId: action.id, useRegex, executionId, startTime: Date.now(), label: 'Waiting' };
+            // --- VOTING SPECIFIC CONFIG ---
+            let validOptions = null;
+            if (enableVoting && action.settings.validOptions) {
+                const path = (action.settings.validOptions || '').replace(/[\{\}]/g, '');
+                validOptions = VariableResolver.getNestedValue(path, context, this.activeTargets);
+                if (!Array.isArray(validOptions)) validOptions = null; // Fallback
+            }
+
+            const waitingPayload = { 
+                keyword, 
+                duration, 
+                maxUsers, 
+                actionId: action.id, 
+                useRegex, 
+                executionId, 
+                startTime: Date.now(), 
+                label: enableVoting ? 'Voting' : 'Waiting',
+                enableVoting
+            };
+            
             this.callbacks.onWaitingChange(waitingPayload, executionId);
             
-            // --- PROCESS TRACKING: WAIT ---
             if (context.channel.mode === 'server') {
                 this.processManager.setWaiting(executionId, waitingPayload, context.channel.id);
             }
@@ -761,40 +780,113 @@ export class FlowExecutor {
                 if (signal?.aborted) return onAbort();
                 signal?.addEventListener('abort', onAbort);
 
-                // Register resolver for external trigger (keyword match)
+                // For standard collection (non-voting) we resolve on first match if needed,
+                // BUT the actual trigger logic is in handleIncomingMessage (Local) or bot.js (Server).
+                // Those functions check maxUsers and trigger resolution.
+                // We keep this promise alive until timeout OR manual trigger.
                 this.pendingResolvers.set(executionId, () => { 
                     cleanup();
                     resolve(); 
                 });
             });
 
+            // Get collected participants from callback store
             const results = this.callbacks.getParticipants(executionId);
             this.callbacks.onWaitingChange(null, executionId);
-            if (results.length === 0) throw new Error('COLLECTION_EMPTY');
-            results.forEach(r => this.registerUser(r.user));
-            const listVar = action.settings.listVar || 'participants';
-            context.variables[listVar] = results.map(r => r.user);
+
+            if (enableVoting) {
+                // --- VOTING AGGREGATION LOGIC ---
+                const tally = {};
+                let winner = "None";
+                let maxVotes = -1;
+                let totalVotes = 0;
+
+                // Normalize options for matching if provided
+                const optionsMap = new Map(); // Lowercase -> Original
+                if (validOptions) {
+                    validOptions.forEach(opt => {
+                        optionsMap.set(String(opt).trim().toLowerCase(), String(opt).trim());
+                        tally[String(opt).trim()] = 0; // Init counts
+                    });
+                }
+
+                results.forEach(entry => {
+                    let vote = entry.keyword.trim();
+                    
+                    // If keyword trigger was used (e.g. !vote A), strip the prefix
+                    if (keyword) {
+                         // Simple strip: remove keyword + space
+                         // E.g. "!vote" -> regex match or exact match
+                         // This is tricky because the trigger logic matches based on keyword presence.
+                         // Let's assume the user logic passes the FULL message.
+                         // We try to remove the keyword prefix if it exists at start
+                         const kwLower = keyword.toLowerCase();
+                         if (vote.toLowerCase().startsWith(kwLower)) {
+                             vote = vote.substring(kwLower.length).trim();
+                         }
+                    }
+
+                    if (validOptions) {
+                        const originalOpt = optionsMap.get(vote.toLowerCase());
+                        if (originalOpt) {
+                            if (tally[originalOpt] !== undefined) tally[originalOpt]++;
+                            totalVotes++;
+                        }
+                    } else {
+                        // Open-ended voting, just tally whatever text remains
+                        if (vote) {
+                             tally[vote] = (tally[vote] || 0) + 1;
+                             totalVotes++;
+                        }
+                    }
+                });
+
+                if (totalVotes === 0) throw new Error("NO_VOTES");
+
+                // Determine Winner
+                Object.entries(tally).forEach(([opt, count]) => {
+                    if (count > maxVotes) {
+                        maxVotes = count;
+                        winner = opt;
+                    } else if (count === maxVotes) {
+                        winner += " & " + opt; // Tie
+                    }
+                });
+
+                const resultVar = action.settings.voteResultVar || 'voteResults';
+                const winnerVar = action.settings.winnerVar || 'winnerOption';
+                
+                context.variables[resultVar] = tally;
+                context.variables[winnerVar] = winner;
+
+                // Also populate listVar for backward compatibility or debugging
+                const listVar = action.settings.listVar || 'participants';
+                context.variables[listVar] = results.map(r => r.user);
+
+            } else {
+                // --- STANDARD COLLECTION LOGIC ---
+                if (results.length === 0) throw new Error('COLLECTION_EMPTY');
+                results.forEach(r => this.registerUser(r.user));
+                const listVar = action.settings.listVar || 'participants';
+                context.variables[listVar] = results.map(r => r.user);
+            }
             break;
           }
           case ActionType.WAIT_FOR_USER_REPLY: {
             const rawTarget = VariableResolver.resolve(action.settings.target || '', context, this.activeTargets);
-            // Allow failing resolution to return null, handled below
             const user = VariableResolver.resolveUserEntity(rawTarget, context, this.knownUsers, false);
             const keyword = VariableResolver.resolve(action.settings.keyword || '', context, this.activeTargets);
 
-            // --- CHECK FOR DUPLICATE WAIT ---
             if (this.callbacks.checkActiveWait) {
                 const isDuplicate = this.callbacks.checkActiveWait({
                     type: 'reply',
                     channelId: command.channelId,
-                    userId: user ? user.id : null, // If null, means "any user"
+                    userId: user ? user.id : null,
                     keyword: keyword
                 });
                 if (isDuplicate) throw new Error("ALREADY_WAITING");
             }
             
-            // If user is null, we treat it as "Any User"
-            // The activeTargets set addition is only useful if we have a specific user ID to block other flows from using.
             if (user) {
                 this.activeTargets.add(user.id);
             }
@@ -815,7 +907,6 @@ export class FlowExecutor {
               
               this.callbacks.onWaitingChange(waitingPayload, executionId);
               
-              // --- PROCESS TRACKING: WAIT ---
               if (context.channel.mode === 'server') {
                   this.processManager.setWaiting(executionId, waitingPayload, context.channel.id);
               }
@@ -852,7 +943,6 @@ export class FlowExecutor {
               
               if (!reply) throw new Error('WAIT_TIMEOUT');
               
-              // Register the actual responder if not previously known
               if (reply.user) {
                   this.registerUser(reply.user);
               }
@@ -1258,14 +1348,11 @@ export class FlowExecutor {
     this.registerUser(userEntity);
     
     // --- ONLY ONLINE CHECK ---
-    // Change default to FALSE (Backward compatibility for legacy commands where undefined)
     const onlyOnline = this.resolveBoolean(command.rootAction.settings.onlyOnline ?? false, { variables: {}, sender, args, channel, static: command.staticVariables, event: eventData });
-    // Only block if strictly required and we are NOT in test mode (Sim/Local)
     if (onlyOnline && channel.isLive === false && channel.mode !== 'testing') {
         if (IS_DEV) console.log(`[FlowExecutor] Skipping ${command.name} because stream is offline (onlyOnline=true).`);
         return;
     }
-    // -------------------------
     
     // --- COOLDOWN CHECK ---
     const now = Date.now();
@@ -1279,23 +1366,18 @@ export class FlowExecutor {
          
          // Trigger error path for Cooldown if defined
          if (command.rootAction.errorChildren && command.rootAction.errorChildren.length > 0) {
-             // We need context to run error children, so we initialize it early for this specific failure case.
-             // (Code duplication is minimal to keep main path clean)
-             // Using minimal context for cooldown error flow
              const cooldownContext = {
                  sender,
                  args,
                  channel,
                  variables: { error_name: 'GLOBAL_COOLDOWN', cooldown_remaining: remaining },
-                 nodeMap: new Map(), // Will need to index nodes for error children
+                 nodeMap: new Map(), 
                  nodeLastRun: new Map()
              };
-             // Index just for error children recursively
              const subMap = new Map();
              command.rootAction.errorChildren.forEach(c => this.indexNodes(c, subMap));
              cooldownContext.nodeMap = subMap;
 
-             // Run error children
              await Promise.all(command.rootAction.errorChildren.map(errChild => 
                  this.executeAction(errChild, cooldownContext, command, executionId)
              ));
