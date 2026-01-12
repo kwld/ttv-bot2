@@ -1,4 +1,4 @@
-
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/kwld/ttv-bot2?utm_source=oss&utm_medium=github&utm_campaign=kwld%2Fttv-bot2&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
 # Gemini Bot Flow Studio
 
 ![Gemini Bot Flow Studio Banner](https://via.placeholder.com/1200x300/0f172a/6366f1?text=Gemini+Bot+Flow+Studio)
